@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Data cache
+data/cache/*
+data/grib/*
+data/radar/*
+data/satellite/*
+
+# Keep directory structure
+!data/cache/.gitkeep
+!data/grib/.gitkeep
+!data/radar/.gitkeep
+!data/satellite/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

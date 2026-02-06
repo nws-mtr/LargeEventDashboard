@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Large Event Weather Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="dashboard-container">
+    <!-- Header -->
+    <header class="dashboard-header">
+      <div class="event-info">
+        <h1 id="event-name">Event Weather Dashboard</h1>
+        <div class="event-details">
+          <span id="event-location"></span>
+          <span id="event-date"></span>
+        </div>
+      </div>
+      <div class="current-time">
+        <div id="clock"></div>
+        <div id="timezone"></div>
+      </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <div class="dashboard-grid">
+      <!-- Current Conditions -->
+      <section class="panel current-conditions">
+        <h2>Current Conditions</h2>
+        <div class="conditions-content">
+          <div class="temperature-display">
+            <span id="current-temp" class="temp-value">--</span>
+            <span class="temp-unit">°F</span>
+          </div>
+          <div class="condition-details">
+            <div class="detail-item">
+              <span class="label">Feels Like:</span>
+              <span id="feels-like">--</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Humidity:</span>
+              <span id="humidity">--</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Wind:</span>
+              <span id="wind">--</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Pressure:</span>
+              <span id="pressure">--</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Visibility:</span>
+              <span id="visibility">--</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Dewpoint:</span>
+              <span id="dewpoint">--</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Weather Alerts -->
+      <section class="panel weather-alerts">
+        <h2>Weather Alerts</h2>
+        <div id="alerts-container" class="alerts-content">
+          <p class="no-alerts">No active alerts</p>
+        </div>
+      </section>
+
+      <!-- Radar Display -->
+      <section class="panel radar-display">
+        <h2>Radar</h2>
+        <div class="radar-content">
+          <div id="radar-container">
+            <img id="radar-image" src="" alt="Radar" />
+            <div class="loading-indicator">Loading radar...</div>
+          </div>
+          <div class="radar-controls">
+            <button id="radar-play" class="control-btn">▶ Play</button>
+            <span id="radar-timestamp" class="timestamp"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Satellite Display -->
+      <section class="panel satellite-display">
+        <h2>Satellite</h2>
+        <div class="satellite-content">
+          <div id="satellite-container">
+            <img id="satellite-image" src="" alt="Satellite" />
+            <div class="loading-indicator">Loading satellite...</div>
+          </div>
+          <div class="satellite-controls">
+            <select id="satellite-product" class="control-select">
+              <option value="geocolor">GeoColor</option>
+              <option value="visible">Visible</option>
+              <option value="infrared">Infrared</option>
+              <option value="watervapor">Water Vapor</option>
+            </select>
+            <span id="satellite-timestamp" class="timestamp"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Hourly Forecast -->
+      <section class="panel hourly-forecast">
+        <h2>Hourly Forecast</h2>
+        <div id="hourly-container" class="hourly-content">
+          <!-- Hourly forecast items will be inserted here -->
+        </div>
+      </section>
+
+      <!-- Additional Data -->
+      <section class="panel additional-data">
+        <h2>Forecast Summary</h2>
+        <div id="forecast-summary" class="summary-content">
+          <!-- Forecast summary will be inserted here -->
+        </div>
+      </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="dashboard-footer">
+      <div class="update-info">
+        Last Updated: <span id="last-update">--</span>
+      </div>
+      <div class="data-sources">
+        Data: NOAA National Weather Service
+      </div>
+    </footer>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

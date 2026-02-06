@@ -1,0 +1,384 @@
+:root {
+  --bg-primary: #0a0e27;
+  --bg-secondary: #141933;
+  --bg-panel: #1a1f3a;
+  --text-primary: #e8eaf6;
+  --text-secondary: #9fa8da;
+  --accent-blue: #2196f3;
+  --accent-green: #4caf50;
+  --accent-yellow: #ffc107;
+  --accent-red: #f44336;
+  --border-color: #283593;
+  --shadow: rgba(0, 0, 0, 0.4);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+  height: 100vh;
+}
+
+.dashboard-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 1rem;
+  gap: 1rem;
+}
+
+/* Header */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: var(--bg-panel);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 6px var(--shadow);
+}
+
+.event-info h1 {
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--accent-blue);
+  margin-bottom: 0.5rem;
+}
+
+.event-details {
+  display: flex;
+  gap: 2rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.current-time {
+  text-align: right;
+}
+
+#clock {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+#timezone {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+/* Dashboard Grid */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 1rem;
+  flex: 1;
+  overflow: hidden;
+}
+
+.panel {
+  background: var(--bg-panel);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel h2 {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  color: var(--accent-blue);
+  border-bottom: 2px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+/* Grid Layout */
+.current-conditions {
+  grid-column: 1 / 2;
+  grid-row: 1 / 2;
+}
+
+.weather-alerts {
+  grid-column: 1 / 2;
+  grid-row: 2 / 4;
+}
+
+.radar-display {
+  grid-column: 2 / 4;
+  grid-row: 1 / 3;
+}
+
+.satellite-display {
+  grid-column: 4 / 5;
+  grid-row: 1 / 3;
+}
+
+.hourly-forecast {
+  grid-column: 2 / 4;
+  grid-row: 3 / 4;
+}
+
+.additional-data {
+  grid-column: 4 / 5;
+  grid-row: 3 / 4;
+}
+
+/* Current Conditions */
+.conditions-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.temperature-display {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  padding: 1rem 0;
+}
+
+.temp-value {
+  font-size: 4rem;
+  font-weight: 700;
+  color: var(--accent-blue);
+}
+
+.temp-unit {
+  font-size: 2rem;
+  color: var(--text-secondary);
+  margin-left: 0.5rem;
+}
+
+.condition-details {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 5px;
+}
+
+.detail-item .label {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+/* Weather Alerts */
+.alerts-content {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.alert-item {
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--bg-secondary);
+  border-left: 4px solid var(--accent-yellow);
+  border-radius: 5px;
+}
+
+.alert-item.severe {
+  border-left-color: var(--accent-red);
+}
+
+.alert-title {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--accent-yellow);
+}
+
+.alert-item.severe .alert-title {
+  color: var(--accent-red);
+}
+
+.no-alerts {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 2rem;
+}
+
+/* Radar & Satellite */
+.radar-content,
+.satellite-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.75rem;
+}
+
+#radar-container,
+#satellite-container {
+  flex: 1;
+  position: relative;
+  background: var(--bg-secondary);
+  border-radius: 5px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#radar-image,
+#satellite-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: none;
+}
+
+#radar-image.loaded,
+#satellite-image.loaded {
+  display: block;
+}
+
+.loading-indicator {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.radar-controls,
+.satellite-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 5px;
+}
+
+.control-btn,
+.control-select {
+  padding: 0.5rem 1rem;
+  background: var(--accent-blue);
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.control-btn:hover,
+.control-select:hover {
+  opacity: 0.8;
+}
+
+.timestamp {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* Hourly Forecast */
+.hourly-content {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.5rem;
+}
+
+.hourly-item {
+  min-width: 120px;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hour-time {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.hour-temp {
+  font-size: 1.5rem;
+  color: var(--accent-blue);
+}
+
+.hour-condition {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.hour-precip {
+  font-size: 0.8rem;
+  color: var(--accent-blue);
+}
+
+/* Summary */
+.summary-content {
+  overflow-y: auto;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.summary-item {
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 5px;
+}
+
+/* Footer */
+.dashboard-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  background: var(--bg-panel);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-blue);
+}
+
+/* Responsive adjustments */
+@media (max-width: 1600px) {
+  .event-info h1 {
+    font-size: 1.5rem;
+  }
+  
+  #clock {
+    font-size: 2rem;
+  }
+}
