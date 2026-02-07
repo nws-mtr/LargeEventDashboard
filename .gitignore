@@ -1,33 +1,24 @@
-# Dependencies
-node_modules/
+# Google Apps Script — Large Event Weather Dashboard
 
-# Python virtual environment
-venv/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+# clasp credentials (contains OAuth tokens — never commit)
+.clasprc.json
+
+# clasp project config (contains your script ID — keep local)
+.clasp.json
 
 # Environment variables
 .env
 
-# Data cache
-data/cache/*
-data/grib/*
-data/radar/*
-data/mrms/*
-data/satellite/*
+# macOS
+.DS_Store
 
-# Test data
-test_radar/
+# Editor
+.vscode/
+*.swp
+*.swo
 
-# Keep directory structure
-!data/cache/.gitkeep
-!data/grib/.gitkeep
-!data/mrms/.gitkeep
-!data/radar/.gitkeep
-!data/satellite/.gitkeep
+# Node (only needed if using clasp locally)
+node_modules/
 
 # Logs
 logs/

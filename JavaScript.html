@@ -1,0 +1,324 @@
+<script>
+// ============================================================================
+// JavaScript.html — Client-side Dashboard Logic
+// Replaces fetch('/api/...') with google.script.run calls
+// ============================================================================
+
+class WeatherDashboard {
+  constructor() {
+    this.config = null;
+    this.init();
+  }
+
+  init() {
+    this.loadConfig();
+    this.setupClock();
+    this.setupEventListeners();
+    this.loadAllData();
+    this.startAutoRefresh();
+  }
+
+  // ── Config ──────────────────────────────────────────────────────────────
+  loadConfig() {
+    google.script.run
+      .withSuccessHandler(function(config) {
+        this.config = config;
+        this.updateEventInfo();
+      }.bind(this))
+      .withFailureHandler(function(err) {
+        console.error('Config error:', err);
+      })
+      .getConfig();
+  }
+
+  updateEventInfo() {
+    if (!this.config) return;
+    document.getElementById('event-name').textContent = this.config.name;
+    document.getElementById('event-location').textContent = this.config.location;
+
+    var startDate = new Date(this.config.startDate);
+    document.getElementById('event-date').textContent = startDate.toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+
+    document.getElementById('timezone').textContent = this.config.timezone;
+  }
+
+  // ── Clock ───────────────────────────────────────────────────────────────
+  setupClock() {
+    var updateClock = function() {
+      var now = new Date();
+      document.getElementById('clock').textContent = now.toLocaleTimeString('en-US', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        timeZone: 'America/Los_Angeles'
+      });
+    };
+    updateClock();
+    setInterval(updateClock, 1000);
+  }
+
+  // ── Event Listeners ─────────────────────────────────────────────────────
+  setupEventListeners() {
+    var self = this;
+    document.getElementById('satellite-product').addEventListener('change', function(e) {
+      self.loadSatellite(e.target.value);
+    });
+
+    document.getElementById('radar-refresh').addEventListener('click', function() {
+      self.loadRadar();
+    });
+  }
+
+  // ── Load All Data ───────────────────────────────────────────────────────
+  loadAllData() {
+    this.loadCurrentWeather();
+    this.loadHourlyForecast();
+    this.loadWeatherAlerts();
+    this.loadRadar();
+    this.loadSatellite();
+    this.updateLastUpdateTime();
+  }
+
+  // ── Current Weather ─────────────────────────────────────────────────────
+  loadCurrentWeather() {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (data.error) { console.error('Weather error:', data.error); return; }
+
+        var obs = data.observations;
+
+        // Temperature
+        var temp = obs.temperature ? obs.temperature.value : null;
+        document.getElementById('current-temp').textContent = temp !== null ? Math.round(temp) : '--';
+
+        // Feels like (wind chill approximation)
+        var windSpeed = (obs.wind && obs.wind.speed) ? obs.wind.speed.value : 0;
+        var feelsLike = temp;
+        if (temp !== null && windSpeed > 3 && temp < 50) {
+          feelsLike = 35.74 + (0.6215 * temp) - (35.75 * Math.pow(windSpeed, 0.16))
+                    + (0.4275 * temp * Math.pow(windSpeed, 0.16));
+        }
+        document.getElementById('feels-like').textContent =
+          feelsLike !== null ? Math.round(feelsLike) + '°F' : '--';
+
+        // Dewpoint
+        var dp = obs.dewpoint ? obs.dewpoint.value : null;
+        document.getElementById('dewpoint').textContent = dp !== null ? Math.round(dp) + '°F' : '--';
+
+        // Humidity
+        var rh = obs.relativeHumidity ? obs.relativeHumidity.value : null;
+        document.getElementById('humidity').textContent = rh !== null ? Math.round(rh) + '%' : '--';
+
+        // Wind
+        var cardinal = obs.wind ? obs.wind.cardinal : '';
+        var ws = obs.wind && obs.wind.speed ? obs.wind.speed.value : null;
+        var gust = obs.wind && obs.wind.gust ? obs.wind.gust.value : null;
+        var windText = '--';
+        if (ws !== null) {
+          windText = cardinal + ' ' + Math.round(ws) + ' mph';
+          if (gust !== null && gust > ws) {
+            windText += ' (gusts ' + Math.round(gust) + ')';
+          }
+        }
+        document.getElementById('wind').textContent = windText;
+
+        // Pressure
+        var pres = obs.pressure && obs.pressure.altimeter ? obs.pressure.altimeter.value : null;
+        document.getElementById('pressure').textContent =
+          pres !== null ? pres.toFixed(2) + ' inHg' : '--';
+
+        // Visibility
+        var vis = obs.visibility ? obs.visibility.value : null;
+        document.getElementById('visibility').textContent =
+          vis !== null ? vis.toFixed(1) + ' mi' : '--';
+
+        // Data source footer
+        if (data.source && data.station) {
+          document.querySelector('.data-sources').textContent =
+            'Data: ' + data.source + ' (Station ' + data.station.id + ': ' + data.station.name + ')';
+        }
+      })
+      .withFailureHandler(function(err) {
+        console.error('Weather fetch error:', err);
+      })
+      .getCurrentWeather();
+  }
+
+  // ── Hourly Forecast ─────────────────────────────────────────────────────
+  loadHourlyForecast() {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (data.error) { console.error('Forecast error:', data.error); return; }
+
+        var container = document.getElementById('hourly-container');
+        container.innerHTML = '';
+
+        var periods = data.forecast.slice(0, 12);
+        periods.forEach(function(period) {
+          var item = document.createElement('div');
+          item.className = 'hourly-item';
+
+          var time = new Date(period.startTime).toLocaleTimeString('en-US', {
+            hour: 'numeric', hour12: true, timeZone: 'America/Los_Angeles'
+          });
+
+          var precip = period.probabilityOfPrecipitation
+            ? (period.probabilityOfPrecipitation.value || 0) : 0;
+
+          item.innerHTML =
+            '<div class="hour-time">' + time + '</div>' +
+            '<div class="hour-temp">' + period.temperature + '°' + period.temperatureUnit + '</div>' +
+            '<div class="hour-condition">' + period.shortForecast + '</div>' +
+            '<div class="hour-precip">' + precip + '% precip</div>';
+
+          container.appendChild(item);
+        });
+
+        // Forecast summary
+        if (data.forecast.length > 0) {
+          var summary = document.getElementById('forecast-summary');
+          summary.innerHTML = data.forecast.slice(0, 6).map(function(p) {
+            var t = new Date(p.startTime).toLocaleTimeString('en-US', {
+              hour: 'numeric', timeZone: 'America/Los_Angeles'
+            });
+            return '<div class="summary-item"><strong>' + t + '</strong>: ' +
+              p.detailedForecast + '</div>';
+          }).join('');
+        }
+      })
+      .withFailureHandler(function(err) {
+        console.error('Forecast fetch error:', err);
+      })
+      .getHourlyForecast();
+  }
+
+  // ── Weather Alerts ──────────────────────────────────────────────────────
+  loadWeatherAlerts() {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        var container = document.getElementById('alerts-container');
+
+        if (data.alerts && data.alerts.length > 0) {
+          container.innerHTML = data.alerts.map(function(alert) {
+            var props = alert.properties;
+            var severity = (props.severity || '').toLowerCase();
+            var isSevere = severity === 'extreme' || severity === 'severe';
+
+            return '<div class="alert-item ' + (isSevere ? 'severe' : '') + '">' +
+              '<div class="alert-title">' + props.event + '</div>' +
+              '<div class="alert-description">' + props.headline + '</div>' +
+              '<div style="font-size:0.8rem;margin-top:0.5rem;color:var(--text-secondary)">' +
+              new Date(props.effective).toLocaleString() + '</div></div>';
+          }).join('');
+        } else {
+          container.innerHTML = '<p class="no-alerts">✅ No active alerts</p>';
+        }
+      })
+      .withFailureHandler(function(err) {
+        console.error('Alerts fetch error:', err);
+      })
+      .getWeatherAlerts();
+  }
+
+  // ── Radar ───────────────────────────────────────────────────────────────
+  loadRadar() {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (data.error) { console.error('Radar error:', data.error); return; }
+
+        var img = document.getElementById('radar-image');
+        var ts = document.getElementById('radar-timestamp');
+
+        img.src = data.url + '?t=' + Date.now();
+        img.onload = function() {
+          img.classList.add('loaded');
+          var loader = img.previousElementSibling;
+          if (loader) loader.style.display = 'none';
+        };
+        img.onerror = function() {
+          // Fallback to loop gif
+          img.src = data.urls.standard + '?t=' + Date.now();
+          img.onload = function() {
+            img.classList.add('loaded');
+            var loader = img.previousElementSibling;
+            if (loader) loader.style.display = 'none';
+          };
+        };
+
+        if (data.timestamp) {
+          var dt = new Date(data.timestamp);
+          ts.textContent = dt.toLocaleTimeString('en-US', {
+            hour: 'numeric', minute: '2-digit', hour12: true,
+            timeZone: 'America/Los_Angeles'
+          }) + ' (' + data.station + ')';
+        }
+      })
+      .withFailureHandler(function(err) {
+        console.error('Radar fetch error:', err);
+      })
+      .getRadarImageUrl();
+  }
+
+  // ── Satellite ───────────────────────────────────────────────────────────
+  loadSatellite(product) {
+    product = product || 'GEOCOLOR';
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (data.error) { console.error('Satellite error:', data.error); return; }
+
+        var img = document.getElementById('satellite-image');
+        var ts = document.getElementById('satellite-timestamp');
+
+        img.src = data.url;
+        img.onload = function() {
+          img.classList.add('loaded');
+          var loader = img.previousElementSibling;
+          if (loader) loader.style.display = 'none';
+        };
+
+        if (data.timestamp) {
+          var dt = new Date(data.timestamp);
+          ts.textContent = dt.toLocaleTimeString('en-US', {
+            hour: 'numeric', minute: '2-digit', hour12: true,
+            timeZone: 'America/Los_Angeles'
+          }) + ' (' + data.product + ')';
+        }
+      })
+      .withFailureHandler(function(err) {
+        console.error('Satellite fetch error:', err);
+      })
+      .getSatelliteImageUrl(product);
+  }
+
+  // ── Auto Refresh ────────────────────────────────────────────────────────
+  updateLastUpdateTime() {
+    document.getElementById('last-update').textContent =
+      new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' });
+  }
+
+  startAutoRefresh() {
+    var self = this;
+
+    // All data every 5 min
+    setInterval(function() {
+      self.loadAllData();
+    }, 5 * 60 * 1000);
+
+    // Radar every 2 min
+    setInterval(function() {
+      self.loadRadar();
+    }, 2 * 60 * 1000);
+
+    // Satellite every 5 min
+    setInterval(function() {
+      var product = document.getElementById('satellite-product').value;
+      self.loadSatellite(product);
+    }, 5 * 60 * 1000);
+  }
+}
+
+// ── Init on DOM ready ─────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  new WeatherDashboard();
+});
+</script>

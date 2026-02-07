@@ -1,167 +1,152 @@
-# Large Event Weather Dashboard
+# 🏈 Super Bowl LX — Large Event Weather Dashboard
 
-A comprehensive weather situational awareness dashboard designed for large outdoor events. Displays real-time weather observations, radar, satellite imagery, and near-term forecasts on a 16:9 display.
+Real-time weather dashboard for **Super Bowl LX** at **Levi's Stadium** (Santa Clara, CA), deployed as a Google Apps Script web app.
 
-## Features
+## Dashboard Features
 
-- **Real-time Weather Data**: Current conditions from NOAA weather stations
-- **Weather Alerts**: Active watches and warnings for the event location
-- **Radar Imagery**: NOAA RIDGE radar displays
-- **Satellite Imagery**: GOES-16 satellite products (GeoColor, Visible, IR, Water Vapor)
-- **Hourly Forecasts**: Near-term forecast data
-- **GRIB Processing**: Framework for high-resolution model data (HRRR, NAM, GFS)
-- **Configurable Location**: Easy event location and metadata configuration
+| Panel | Source | Refresh |
+|-------|--------|---------|
+| **Current Conditions** | Synoptic API → NWS fallback | 5 min |
+| **Weather Alerts** | NWS Alerts API | 1 min |
+| **Radar (KMUX)** | NOAA RIDGE pre-rendered imagery | 2 min |
+| **Satellite (GOES-18)** | NOAA CDN (GeoColor, Visible, IR, WV) | 5 min |
+| **Hourly Forecast** | NWS Hourly Forecast API | 15 min |
+| **Forecast Summary** | NWS Detailed Forecast | 15 min |
 
-## Technology Stack
+## Architecture
 
-**Backend:**
-- Node.js with Express
-- NOAA API integration
-- Automated data caching
-- Scheduled updates with node-cron
+```
+┌─────────────────────────────────────────────┐
+│  Google Apps Script Web App                  │
+│                                              │
+│  Code.gs          ─ Server-side functions    │
+│  Index.html       ─ Dashboard HTML shell     │
+│  Stylesheet.html  ─ CSS (dark theme)         │
+│  JavaScript.html  ─ Client-side JS           │
+│  appsscript.json  ─ Manifest                 │
+└─────────────────────────────────────────────┘
+         │                        │
+         ▼                        ▼
+  UrlFetchApp.fetch()     google.script.run
+         │                   (client→server RPC)
+         ▼
+  ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐
+  │ Synoptic API │  │ NWS API      │  │ NOAA CDN/RIDGE  │
+  │ (weather)    │  │ (forecast,   │  │ (radar,         │
+  │              │  │  alerts)     │  │  satellite)     │
+  └─────────────┘  └──────────────┘  └─────────────────┘
+```
 
-**Frontend:**
-- Vanilla JavaScript
-- Responsive CSS Grid layout
-- Optimized for 16:9 displays
-- Auto-refreshing data
+## Deployment
 
-**Data Sources:**
-- NOAA National Weather Service API
-- NOAA RIDGE Radar
-- NOAA GOES Satellite
-- NOMADS GRIB2 data (planned)
+### Option A: Manual (Apps Script Editor)
 
-## Setup
+1. Go to [script.google.com](https://script.google.com) and create a new project
+2. Create the following files and paste in their contents:
+   - `Code.gs` (replace default `Code.gs`)
+   - `Index.html` (File → New → HTML file → name it `Index`)
+   - `Stylesheet.html` (File → New → HTML file → name it `Stylesheet`)
+   - `JavaScript.html` (File → New → HTML file → name it `JavaScript`)
+3. Replace the contents of `appsscript.json` (View → Show manifest file)
+4. Click **Deploy → New deployment**
+5. Select type **Web app**
+6. Set "Execute as" to **Me** and "Who has access" to **Anyone**
+7. Click **Deploy** and authorize when prompted
+8. Open the provided URL — your dashboard is live!
 
-1. **Install Dependencies:**
-   ```bash
-   npm install
-   ```
+### Option B: clasp CLI (Recommended)
 
-2. **Configure Environment:**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your settings
-   ```
+```bash
+# 1. Install clasp globally
+npm install -g @google/clasp
 
-3. **Configure Event Location:**
-   Edit `config/event.config.json` with your event details:
-   ```json
-   {
-     "event": {
-       "name": "Your Event Name",
-       "location": "Venue Name",
-       "latitude": 40.7128,
-       "longitude": -74.0060,
-       "timezone": "America/New_York",
-       "startDate": "2026-06-15T09:00:00",
-       "endDate": "2026-06-15T22:00:00"
-     }
-   }
-   ```
+# 2. Log in to your Google account
+clasp login
 
-4. **Start the Server:**
-   ```bash
-   npm start
-   # Or for development with auto-reload:
-   npm run dev
-   ```
+# 3. Create a new Apps Script project
+clasp create --title "Super Bowl LX Weather Dashboard" --type webapp
 
-5. **Access Dashboard:**
-   Open http://localhost:3000 in your browser
+# 4. The above command creates .clasp.json with your scriptId.
+#    Push all files to Google Apps Script:
+clasp push
 
-## Project Structure
+# 5. Open in browser to verify
+clasp open
+
+# 6. Deploy as web app
+clasp deploy --description "v1.0 — Initial deployment"
+
+# 7. Open the deployed web app
+clasp open --webapp
+```
+
+### Post-Deployment: Install Cache Warming Trigger
+
+In the Apps Script editor (or via `clasp run`):
+
+1. Open the script editor
+2. Select `installTrigger` from the function dropdown
+3. Click **Run**
+4. Authorize when prompted
+
+This creates a time-driven trigger that pre-warms the cache every 5 minutes, so the dashboard loads faster.
+
+## Configuration
+
+All configuration is in `Code.gs` constants:
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `EVENT_CONFIG.latitude` | `37.403147` | Levi's Stadium latitude |
+| `EVENT_CONFIG.longitude` | `-121.969814` | Levi's Stadium longitude |
+| `SYNOPTIC_API_KEY` | `e0fb17ad...` | Synoptic Data API token |
+| `NEAREST_STATION` | `462PG` | Milpitas IDSM weather station |
+| `RADAR_STATION` | `KMUX` | Bay Area NEXRAD site |
+
+### Moving API Key to PropertiesService (Recommended for Production)
+
+```javascript
+// In Apps Script editor: File → Project properties → Script properties
+// Add: SYNOPTIC_API_KEY = your_key_here
+
+// Then in Code.gs, replace the constant with:
+var SYNOPTIC_API_KEY = PropertiesService.getScriptProperties().getProperty('SYNOPTIC_API_KEY');
+```
+
+## Data Sources
+
+- **Current Weather**: [Synoptic Data API](https://synopticdata.com/) (station 462PG, Milpitas IDSM, ~3.1 km from venue)
+- **Forecast & Alerts**: [NOAA National Weather Service API](https://api.weather.gov/)
+- **Radar**: [NOAA RIDGE](https://radar.weather.gov/) (KMUX — Mt. Umunhum, Bay Area)
+- **Satellite**: [GOES-18 ABI](https://cdn.star.nesdis.noaa.gov/) (Pacific Southwest sector)
+
+## File Structure
 
 ```
 LargeEventDashboard/
-├── backend/
-│   ├── routes/          # API route handlers
-│   ├── services/        # Business logic and data fetching
-│   ├── utils/           # Utility functions
-│   ├── middleware/      # Express middleware
-│   └── server.js        # Main server file
-├── frontend/
-│   ├── css/            # Stylesheets
-│   ├── js/             # Frontend JavaScript
-│   └── index.html      # Main dashboard HTML
-├── config/
-│   └── event.config.json  # Event configuration
-├── data/
-│   ├── cache/          # Cached weather data
-│   ├── radar/          # Radar imagery
-│   ├── satellite/      # Satellite imagery
-│   └── grib/           # GRIB2 data files
-└── package.json
+├── appsscript.json      # GAS manifest (timezone, runtime, webapp config)
+├── Code.gs              # Server-side: API calls, caching, unit conversion
+├── Index.html           # Dashboard HTML template
+├── Stylesheet.html      # CSS (dark theme, 4×3 grid layout)
+├── JavaScript.html      # Client-side JS (google.script.run RPC)
+├── .clasp.json          # clasp CLI config (script ID)
+├── .gitignore           # Git ignore rules
+├── .env.example         # Reference env vars
+└── README.md            # This file
 ```
 
-## API Endpoints
+## Key Differences from Node.js Version
 
-- `GET /api/config` - Get event configuration
-- `GET /api/weather/current` - Current weather conditions
-- `GET /api/weather/forecast/hourly` - Hourly forecast
-- `GET /api/weather/alerts` - Active weather alerts
-- `GET /api/radar/latest` - Latest radar image
-- `GET /api/radar/loop` - Radar animation frames
-- `GET /api/satellite/latest` - Latest satellite image
-- `GET /api/satellite/product/:type` - Specific satellite product
-- `GET /api/grib/latest` - Latest GRIB data (planned)
-
-## Development Roadmap
-
-### Phase 1 (Current)
-- ✅ Basic project structure
-- ✅ NOAA API integration
-- ✅ Radar and satellite display
-- ✅ Weather alerts
-- ✅ Hourly forecasts
-
-### Phase 2 (Planned)
-- [ ] GRIB2 data processing (requires `grib2json` or `wgrib2`)
-- [ ] Advanced radar features (storm tracks, velocity)
-- [ ] Lightning detection integration
-- [ ] Historical trend charts
-- [ ] WebSocket for real-time updates
-
-### Phase 3 (Future)
-- [ ] Multi-location support
-- [ ] Custom alert thresholds
-- [ ] Mobile companion app
-- [ ] Data export capabilities
-- [ ] Integration with event management systems
-
-## GRIB Data Implementation
-
-To add GRIB2 processing capabilities:
-
-1. Install wgrib2 or use a Node.js GRIB library
-2. Update `backend/services/grib.service.js`
-3. Configure NOMADS data sources
-4. Add visualization layer to frontend
-
-Example libraries:
-- `grib2json` - Convert GRIB2 to JSON
-- Node bindings for `wgrib2`
-
-## Display Optimization
-
-The dashboard is optimized for 16:9 displays (1920x1080 or higher). For best results:
-
-- Use fullscreen mode (F11 in most browsers)
-- Disable browser UI elements
-- Use a dedicated display device
-- Consider kiosk mode for production deployments
-
-## Contributing
-
-This is a custom dashboard for event weather monitoring. Contributions and suggestions are welcome.
+| Feature | Node.js/Express | Google Apps Script |
+|---------|----------------|-------------------|
+| HTTP client | `axios` | `UrlFetchApp.fetch()` |
+| Client↔Server | `fetch('/api/...')` | `google.script.run` |
+| Caching | File system (`data/cache/`) | `CacheService` (100KB/key, 6hr max) |
+| Scheduled tasks | `node-cron` | `ScriptApp.newTrigger()` |
+| Radar processing | GRIB2 via Python/pygrib | Pre-rendered NOAA RIDGE images |
+| Satellite | Download to local disk | Direct CDN URLs |
+| Hosting | Express server (port 3000) | Google-managed web app |
 
 ## License
 
-MIT
-
-## Acknowledgments
-
-- NOAA National Weather Service for weather data
-- NOAA RIDGE for radar imagery
-- NOAA GOES for satellite imagery
+Internal use — Super Bowl LX event operations.
