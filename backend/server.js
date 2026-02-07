@@ -13,7 +13,6 @@ app.use(express.static(path.join(__dirname, '../frontend')));
 
 // Import routes
 const weatherRoutes = require('./routes/weather.routes');
-const radarRoutes = require('./routes/radar.routes');
 const satelliteRoutes = require('./routes/satellite.routes');
 const gribRoutes = require('./routes/grib.routes');
 const mrmsRoutes = require('./routes/mrms.routes');
@@ -21,9 +20,9 @@ const configRoutes = require('./routes/config.routes');
 
 // API Routes
 app.use('/api/weather', weatherRoutes);
-app.use('/api/radar', radarRoutes);
 app.use('/api/satellite', satelliteRoutes);
 app.use('/api/grib', gribRoutes);
+app.use('/api/radar', mrmsRoutes); // MRMS is the primary radar source
 app.use('/api/mrms', mrmsRoutes);
 app.use('/api/config', configRoutes);
 
@@ -47,13 +46,11 @@ app.listen(PORT, () => {
 
 // Initialize services
 const weatherService = require('./services/weather.service');
-const radarService = require('./services/radar.service');
 const satelliteService = require('./services/satellite.service');
 const mrmsService = require('./services/mrms.service');
 
 // Start background data updates
 weatherService.startPeriodicUpdates();
-radarService.startPeriodicUpdates();
 satelliteService.startPeriodicUpdates();
 mrmsService.startPeriodicUpdates();
 

@@ -49,7 +49,7 @@ fi
 
 # Create data directories if they don't exist
 echo "📁 Creating data directories..."
-mkdir -p data/radar
+mkdir -p data/mrms
 mkdir -p data/satellite
 mkdir -p data/grib
 mkdir -p data/cache
@@ -71,7 +71,4 @@ echo "📝 Next steps:"
 echo "   1. Review config/event.config.json"
 echo "   2. Run: npm start"
 echo "   3. Open: http://localhost:3000"
-echo ""
-echo "🧪 To test radar system:"
-echo "   node test-radar.js"
 echo ""

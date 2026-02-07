@@ -70,37 +70,17 @@
         </div>
       </section>
 
-      <!-- Radar Display (Tabbed: NEXRAD / MRMS) -->
+      <!-- Radar Display (MRMS) -->
       <section class="panel radar-display">
-        <div class="panel-header-tabs">
-          <h2>Radar</h2>
-          <div class="tab-group" id="radar-tabs">
-            <button class="tab-btn active" data-tab="nexrad">NEXRAD</button>
-            <button class="tab-btn" data-tab="mrms">MRMS</button>
-          </div>
-        </div>
+        <h2>Radar</h2>
         <div class="radar-content">
-          <!-- NEXRAD Tab -->
-          <div id="nexrad-tab" class="radar-tab-content active">
-            <div id="radar-container">
-              <img id="radar-image" src="" alt="NEXRAD Radar" />
-              <div class="loading-indicator">Loading NEXRAD radar...</div>
-            </div>
-            <div class="radar-controls">
-              <button id="radar-play" class="control-btn">▶ Play</button>
-              <span id="radar-timestamp" class="timestamp"></span>
-            </div>
+          <div id="radar-container">
+            <img id="radar-image" src="" alt="MRMS Radar" />
+            <div class="loading-indicator">Loading radar...</div>
           </div>
-          <!-- MRMS Tab -->
-          <div id="mrms-tab" class="radar-tab-content">
-            <div id="mrms-container">
-              <img id="mrms-image" src="" alt="MRMS Radar" />
-              <div class="loading-indicator">Loading MRMS radar...</div>
-            </div>
-            <div class="radar-controls">
-              <span class="mrms-label">NOAA MRMS Composite</span>
-              <span id="mrms-timestamp" class="timestamp"></span>
-            </div>
+          <div class="radar-controls">
+            <span class="radar-source">NOAA MRMS Composite</span>
+            <span id="radar-timestamp" class="timestamp"></span>
           </div>
         </div>
       </section>

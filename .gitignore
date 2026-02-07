@@ -16,6 +16,7 @@ __pycache__/
 data/cache/*
 data/grib/*
 data/radar/*
+data/mrms/*
 data/satellite/*
 
 # Test data
