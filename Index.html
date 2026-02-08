@@ -29,46 +29,72 @@
     <!-- Main Content Grid -->
     <div class="dashboard-grid">
 
-      <!-- Current Conditions -->
+      <!-- Current Conditions (expanded — full surface obs) -->
       <section class="panel current-conditions">
         <h2>Current Conditions</h2>
         <div class="conditions-content">
-          <div class="temperature-display">
-            <span id="current-temp" class="temp-value">--</span>
-            <span class="temp-unit">°F</span>
+          <div class="obs-header">
+            <div class="temperature-display">
+              <span id="current-temp" class="temp-value">--</span>
+              <span class="temp-unit">°F</span>
+            </div>
+            <div class="obs-meta">
+              <div id="obs-time" class="obs-time-label">--</div>
+              <div id="obs-station" class="obs-station-label">--</div>
+            </div>
           </div>
-          <div class="condition-details">
+          <div class="obs-grid">
             <div class="detail-item">
-              <span class="label">Feels Like:</span>
-              <span id="feels-like">--</span>
+              <span class="label">Feels Like</span>
+              <span id="feels-like" class="detail-value">--</span>
             </div>
             <div class="detail-item">
-              <span class="label">Dewpoint:</span>
-              <span id="dewpoint">--</span>
+              <span class="label">Dewpoint</span>
+              <span id="dewpoint" class="detail-value">--</span>
             </div>
             <div class="detail-item">
-              <span class="label">Humidity:</span>
-              <span id="humidity">--</span>
+              <span class="label">Humidity</span>
+              <span id="humidity" class="detail-value">--</span>
             </div>
             <div class="detail-item">
-              <span class="label">Wind:</span>
-              <span id="wind">--</span>
+              <span class="label">Wind</span>
+              <span id="wind" class="detail-value">--</span>
             </div>
             <div class="detail-item">
-              <span class="label">Pressure:</span>
-              <span id="pressure">--</span>
+              <span class="label">Wind Dir</span>
+              <span id="wind-dir" class="detail-value">--</span>
             </div>
             <div class="detail-item">
-              <span class="label">Visibility:</span>
-              <span id="visibility">--</span>
+              <span class="label">Gusts</span>
+              <span id="wind-gust" class="detail-value">--</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Altimeter</span>
+              <span id="pressure" class="detail-value">--</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">SLP</span>
+              <span id="slp" class="detail-value">--</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Visibility</span>
+              <span id="visibility" class="detail-value">--</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">1-hr Precip</span>
+              <span id="precip-1hr" class="detail-value">--</span>
+            </div>
+            <div class="detail-item detail-item-wide">
+              <span class="label">Clouds</span>
+              <span id="clouds" class="detail-value">--</span>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Weather Alerts -->
+      <!-- Weather Alerts (compact) -->
       <section class="panel weather-alerts">
-        <h2>Weather Alerts</h2>
+        <h2>Alerts</h2>
         <div id="alerts-container" class="alerts-content">
           <p class="no-alerts">Loading alerts...</p>
         </div>

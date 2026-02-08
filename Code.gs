@@ -214,6 +214,28 @@ function fetchSynopticWeather_() {
   var rh           = getVal('relative_humidity_value_1', 'relative_humidity_set_1');
   var slp          = getVal('sea_level_pressure_value_1d', 'sea_level_pressure_set_1d');
 
+  // Cloud layer codes (Synoptic returns METAR-style: "SCT025", "BKN060", etc.)
+  var cloud1 = getVal('cloud_layer_1_code_value_1', 'cloud_layer_1_code_set_1');
+  var cloud2 = getVal('cloud_layer_2_code_value_1', 'cloud_layer_2_code_set_1');
+  var cloud3 = getVal('cloud_layer_3_code_value_1', 'cloud_layer_3_code_set_1');
+
+  // Parse cloud layers into readable strings
+  function parseCloudLayer(raw) {
+    if (!raw) return null;
+    var str = String(raw);
+    // Common METAR cloud codes: CLR, FEW, SCT, BKN, OVC + height in hundreds of feet
+    var match = str.match(/(CLR|SKC|FEW|SCT|BKN|OVC|VV)(\d{3})?/i);
+    if (!match) return str; // return raw if unparseable
+    var cover = match[1].toUpperCase();
+    var ht = match[2] ? parseInt(match[2]) * 100 : null;
+    var names = { CLR: 'Clear', SKC: 'Clear', FEW: 'Few', SCT: 'Scattered', BKN: 'Broken', OVC: 'Overcast', VV: 'Vert Vis' };
+    var name = names[cover] || cover;
+    return ht ? name + ' @ ' + ht.toLocaleString() + ' ft' : name;
+  }
+
+  var cloudLayers = [parseCloudLayer(cloud1), parseCloudLayer(cloud2), parseCloudLayer(cloud3)]
+    .filter(function(c) { return c !== null; });
+
   var result = {
     timestamp: new Date().toISOString(),
     observationTime: getTimestamp('air_temp_value_1', 'air_temp_set_1'),
@@ -242,7 +264,8 @@ function fetchSynopticWeather_() {
       },
       precipitation: {
         oneHour: { value: round2(mmToInches(precipMm)), unit: 'inches' }
-      }
+      },
+      clouds: cloudLayers
     },
     location: EVENT_CONFIG
   };
@@ -268,6 +291,19 @@ function fetchNOAAWeather_() {
   var vis   = props.visibility && props.visibility.value;
   var slp   = props.seaLevelPressure && props.seaLevelPressure.value;
 
+  // NWS cloud layers
+  var nwsClouds = [];
+  if (props.cloudLayers && props.cloudLayers.length > 0) {
+    var clNames = { CLR: 'Clear', SKC: 'Clear', FEW: 'Few', SCT: 'Scattered', BKN: 'Broken', OVC: 'Overcast', VV: 'Vert Vis' };
+    for (var ci = 0; ci < props.cloudLayers.length; ci++) {
+      var cl = props.cloudLayers[ci];
+      var amt = cl.amount || '';
+      var base = cl.base && cl.base.value ? Math.round(cl.base.value * 3.28084) : null; // m → ft
+      var cName = clNames[amt] || amt;
+      nwsClouds.push(base ? cName + ' @ ' + base.toLocaleString() + ' ft' : cName);
+    }
+  }
+
   var result = {
     timestamp: new Date().toISOString(),
     observationTime: props.timestamp,
@@ -291,7 +327,8 @@ function fetchNOAAWeather_() {
         seaLevel:  { value: slp !== null ? round1(slp / 100) : null, unit: 'mb' },
         altimeter: { value: slp !== null ? round2(slp / 3386.39) : null, unit: 'inHg' }
       },
-      precipitation: { oneHour: { value: null, unit: 'inches' } }
+      precipitation: { oneHour: { value: null, unit: 'inches' } },
+      clouds: nwsClouds
     },
     location: EVENT_CONFIG
   };

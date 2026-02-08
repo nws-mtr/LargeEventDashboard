@@ -498,9 +498,27 @@ class WeatherDashboard {
 
         var obs = data.observations;
 
+        // Temperature
         var temp = obs.temperature ? obs.temperature.value : null;
         document.getElementById('current-temp').textContent = temp !== null ? Math.round(temp) : '--';
 
+        // Observation time
+        if (data.observationTime) {
+          var obsDate = new Date(data.observationTime);
+          document.getElementById('obs-time').textContent = 'Obs: ' + obsDate.toLocaleTimeString('en-US', {
+            hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Los_Angeles'
+          });
+        }
+
+        // Station info
+        if (data.station) {
+          var stLabel = data.station.id || '';
+          if (data.station.name) stLabel += ' — ' + data.station.name;
+          if (data.station.distance) stLabel += ' (' + data.station.distance.toFixed(1) + ' mi)';
+          document.getElementById('obs-station').textContent = stLabel;
+        }
+
+        // Feels Like (wind chill)
         var windSpeed = (obs.wind && obs.wind.speed) ? obs.wind.speed.value : 0;
         var feelsLike = temp;
         if (temp !== null && windSpeed > 3 && temp < 50) {
@@ -510,35 +528,59 @@ class WeatherDashboard {
         document.getElementById('feels-like').textContent =
           feelsLike !== null ? Math.round(feelsLike) + '°F' : '--';
 
+        // Dewpoint
         var dp = obs.dewpoint ? obs.dewpoint.value : null;
         document.getElementById('dewpoint').textContent = dp !== null ? Math.round(dp) + '°F' : '--';
 
+        // Humidity
         var rh = obs.relativeHumidity ? obs.relativeHumidity.value : null;
         document.getElementById('humidity').textContent = rh !== null ? Math.round(rh) + '%' : '--';
 
+        // Wind (cardinal + speed)
         var cardinal = obs.wind ? obs.wind.cardinal : '';
         var ws = obs.wind && obs.wind.speed ? obs.wind.speed.value : null;
+        document.getElementById('wind').textContent =
+          ws !== null ? cardinal + ' ' + Math.round(ws) + ' mph' : '--';
+
+        // Wind direction (degrees)
+        var wdir = obs.wind && obs.wind.direction ? obs.wind.direction.value : null;
+        document.getElementById('wind-dir').textContent =
+          wdir !== null ? Math.round(wdir) + '°' : '--';
+
+        // Gusts
         var gust = obs.wind && obs.wind.gust ? obs.wind.gust.value : null;
-        var windText = '--';
-        if (ws !== null) {
-          windText = cardinal + ' ' + Math.round(ws) + ' mph';
-          if (gust !== null && gust > ws) {
-            windText += ' (gusts ' + Math.round(gust) + ')';
-          }
-        }
-        document.getElementById('wind').textContent = windText;
+        document.getElementById('wind-gust').textContent =
+          (gust !== null && gust > 0) ? Math.round(gust) + ' mph' : 'None';
 
-        var pres = obs.pressure && obs.pressure.altimeter ? obs.pressure.altimeter.value : null;
+        // Altimeter
+        var alt = obs.pressure && obs.pressure.altimeter ? obs.pressure.altimeter.value : null;
         document.getElementById('pressure').textContent =
-          pres !== null ? pres.toFixed(2) + ' inHg' : '--';
+          alt !== null ? alt.toFixed(2) + ' inHg' : '--';
 
+        // Sea Level Pressure
+        var slp = obs.pressure && obs.pressure.seaLevel ? obs.pressure.seaLevel.value : null;
+        document.getElementById('slp').textContent =
+          slp !== null ? slp.toFixed(1) + ' mb' : '--';
+
+        // Visibility
         var vis = obs.visibility ? obs.visibility.value : null;
         document.getElementById('visibility').textContent =
           vis !== null ? vis.toFixed(1) + ' mi' : '--';
 
+        // 1-hr Precipitation
+        var precip = obs.precipitation && obs.precipitation.oneHour ? obs.precipitation.oneHour.value : null;
+        document.getElementById('precip-1hr').textContent =
+          (precip !== null && precip > 0) ? precip.toFixed(2) + '"' : '0.00"';
+
+        // Clouds
+        var clouds = obs.clouds || [];
+        document.getElementById('clouds').textContent =
+          clouds.length > 0 ? clouds.join(' · ') : 'Clear';
+
+        // Data source in footer
         if (data.source && data.station) {
           document.querySelector('.data-sources').textContent =
-            'Data: ' + data.source + ' (Station ' + data.station.id + ': ' + data.station.name + ')';
+            'Data: ' + data.source + ' (' + data.station.id + ') / NOAA NWS / SSEC RealEarth GOES-18';
         }
       })
       .withFailureHandler(function(err) {
