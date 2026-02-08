@@ -116,8 +116,11 @@ class WeatherDashboard {
     this.radarPlayer = null;
 
     this.satelliteMap = null;
-    this.satelliteWmsLayer = null;  // single WMS layer (latest frame only)
-    this.satelliteChannel = 'conus_ch02'; // default to visible
+    this.satelliteWmsLayers = {};   // keyed by SSEC timestamp
+    this.satelliteTimes = [];
+    this.activeSatTime = null;
+    this.satellitePlayer = null;
+    this.satelliteChannel = 'G18-ABI-CONUS-BAND02'; // default to visible
     this.init();
   }
 
@@ -175,7 +178,7 @@ class WeatherDashboard {
     this.loadHourlyForecast();
     this.loadWeatherAlerts();
     this.loadRadarTimes();
-    this.loadSatellite();
+    this.loadSatelliteTimes();
     this.updateLastUpdateTime();
   }
 
@@ -233,7 +236,7 @@ class WeatherDashboard {
   }
 
   loadRadarTimes() {
-    // Fetch WMS time dimension via Code.gs proxy (avoids CORS in GAS iframe)
+    // Fetch WMS time dimension via Code.gs (pre-filtered to last 30 min)
     google.script.run
       .withSuccessHandler(function(data) {
         if (data.error) {
@@ -241,13 +244,12 @@ class WeatherDashboard {
           return;
         }
         this.radarTimes = data.times || [];
-        // Keep last 10 frames for looping
-        var loopTimes = this.radarTimes.slice(-10);
-        this.radarPlayer.setFrames(loopTimes);
+        // Server already filters to last 30 min — use all returned frames
+        this.radarPlayer.setFrames(this.radarTimes);
 
         // Update timestamp display
-        if (loopTimes.length > 0) {
-          var latest = loopTimes[loopTimes.length - 1];
+        if (this.radarTimes.length > 0) {
+          var latest = this.radarTimes[this.radarTimes.length - 1];
           document.getElementById('radar-timestamp').textContent =
             this.formatTimePST(latest) + ' (MRMS)';
         }
@@ -307,7 +309,7 @@ class WeatherDashboard {
     }
   }
 
-  // ── Satellite: Leaflet Map + WMS (GOES-18 latest frame only) ──────────
+  // ── Satellite: Leaflet Map + SSEC RealEarth Tile Loop (GOES-18) ─────
   initSatelliteMap() {
     var venueLatLng = [37.403147, -121.969814];
 
@@ -353,10 +355,19 @@ class WeatherDashboard {
       }
     ).addTo(this.satelliteMap);
 
-    // Refresh button
+    // Init satellite loop player
     var self = this;
+    this.satellitePlayer = new LoopPlayer({
+      id: 'satellite',
+      speed: 500,
+      onFrame: function(timeStr, index) {
+        self.showSatelliteFrame(timeStr);
+      }
+    });
+
+    // Refresh button
     document.getElementById('satellite-refresh').addEventListener('click', function() {
-      self.loadSatellite();
+      self.loadSatelliteTimes();
     });
 
     // Channel selector buttons
@@ -366,34 +377,62 @@ class WeatherDashboard {
         channelBtns.forEach(function(b) { b.classList.remove('active'); });
         btn.classList.add('active');
         self.satelliteChannel = btn.getAttribute('data-channel');
-        self.loadSatellite();
+        // Clear cached layers for old channel
+        self.clearSatelliteLayers();
+        self.loadSatelliteTimes();
       });
     });
   }
 
-  loadSatellite() {
-    var self = this;
+  loadSatelliteTimes() {
+    // Fetch SSEC RealEarth times for the selected channel (pre-filtered to last 30 min)
+    google.script.run
+      .withSuccessHandler(function(data) {
+        if (data.error) {
+          console.error('Satellite times error:', data.error);
+          document.getElementById('satellite-timestamp').textContent = 'Error loading';
+          return;
+        }
+        this.satelliteTimes = data.times || [];
+        this.satellitePlayer.setFrames(this.satelliteTimes);
 
-    // Remove existing satellite WMS layer
-    if (this.satelliteWmsLayer) {
-      this.satelliteMap.removeLayer(this.satelliteWmsLayer);
-      this.satelliteWmsLayer = null;
+        // Update timestamp display
+        if (this.satelliteTimes.length > 0) {
+          var latest = this.satelliteTimes[this.satelliteTimes.length - 1];
+          document.getElementById('satellite-timestamp').textContent =
+            this.formatSsecTime(latest) + ' (' + (data.channelName || this.satelliteChannel) + ')';
+        }
+        // Default: paused on latest frame
+      }.bind(this))
+      .withFailureHandler(function(err) {
+        console.error('Satellite times fetch error:', err);
+      })
+      .getSatelliteTimes(this.satelliteChannel);
+  }
+
+  showSatelliteFrame(timeStr) {
+    // Hide current active satellite layer
+    if (this.activeSatTime && this.satelliteWmsLayers[this.activeSatTime]) {
+      this.satelliteMap.removeLayer(this.satelliteWmsLayers[this.activeSatTime]);
     }
 
-    // Add new WMS layer for the selected channel (latest frame — no time param)
-    // Cache-bust with a rounded timestamp so tiles refresh every 5 min
-    var cacheBust = Math.floor(Date.now() / (5 * 60 * 1000));
-    this.satelliteWmsLayer = L.tileLayer.wms(
-      'https://mesonet.agron.iastate.edu/cgi-bin/wms/goes_west.cgi?', {
-        layers: this.satelliteChannel,
-        format: 'image/png',
-        transparent: true,
-        version: '1.1.1',
-        opacity: 0.85,
-        _cb: cacheBust,
-        attribution: 'GOES-18 — Iowa State Mesonet'
-      }
-    ).addTo(this.satelliteMap);
+    // Create or reuse tile layer for this SSEC timestamp
+    if (!this.satelliteWmsLayers[timeStr]) {
+      // SSEC RealEarth tile URL: /api/image?products=CHANNEL.100&x={x}&y={y}&z={z}&time=TIMESTAMP
+      this.satelliteWmsLayers[timeStr] = L.tileLayer(
+        'https://realearth.ssec.wisc.edu/api/image?products=' +
+          this.satelliteChannel + '.100&x={x}&y={y}&z={z}&time=' + timeStr, {
+          opacity: 0.85,
+          maxZoom: 12,
+          crossOrigin: 'anonymous',
+          referrerPolicy: 'no-referrer',
+          attribution: 'GOES-18 — SSEC RealEarth'
+        }
+      );
+    }
+
+    this.satelliteWmsLayers[timeStr].addTo(this.satelliteMap);
+    this.activeSatTime = timeStr;
 
     // Ensure labels stay on top
     if (this.satLabelsLayer) {
@@ -402,17 +441,53 @@ class WeatherDashboard {
 
     // Update timestamp label
     var channelNames = {
-      'conus_ch02': 'Visible',
-      'conus_ch09': 'Water Vapor',
-      'conus_ch13': 'Clean IR'
+      'G18-ABI-CONUS-BAND02': 'Visible',
+      'G18-ABI-CONUS-BAND09': 'Water Vapor',
+      'G18-ABI-CONUS-BAND13': 'Clean IR'
     };
     var chName = channelNames[this.satelliteChannel] || this.satelliteChannel;
-    var now = new Date();
     document.getElementById('satellite-timestamp').textContent =
-      now.toLocaleTimeString('en-US', {
+      this.formatSsecTime(timeStr) + ' (' + chName + ')';
+
+    // Garbage-collect old layers not in current loop set
+    this.pruneSatelliteLayers();
+  }
+
+  clearSatelliteLayers() {
+    for (var key in this.satelliteWmsLayers) {
+      this.satelliteMap.removeLayer(this.satelliteWmsLayers[key]);
+    }
+    this.satelliteWmsLayers = {};
+    this.activeSatTime = null;
+  }
+
+  pruneSatelliteLayers() {
+    var currentFrames = this.satellitePlayer.frames;
+    var keep = {};
+    for (var i = 0; i < currentFrames.length; i++) {
+      keep[currentFrames[i]] = true;
+    }
+    for (var key in this.satelliteWmsLayers) {
+      if (!keep[key] && key !== this.activeSatTime) {
+        this.satelliteMap.removeLayer(this.satelliteWmsLayers[key]);
+        delete this.satelliteWmsLayers[key];
+      }
+    }
+  }
+
+  // Format SSEC time string "20260208.020117" → "6:01 PM" in PST
+  formatSsecTime(ssecStr) {
+    try {
+      var iso = ssecStr.substring(0,4) + '-' + ssecStr.substring(4,6) + '-' +
+                ssecStr.substring(6,8) + 'T' + ssecStr.substring(9,11) + ':' +
+                ssecStr.substring(11,13) + ':' + ssecStr.substring(13,15) + 'Z';
+      return new Date(iso).toLocaleTimeString('en-US', {
         hour: 'numeric', minute: '2-digit', hour12: true,
         timeZone: 'America/Los_Angeles'
-      }) + ' (' + chName + ')';
+      });
+    } catch (e) {
+      return ssecStr;
+    }
   }
 
   // ── Current Weather ───────────────────────────────────────────────────
@@ -707,9 +782,9 @@ class WeatherDashboard {
       self.loadRadarTimes();
     }, 2 * 60 * 1000);
 
-    // Satellite every 5 min
+    // Satellite times every 5 min
     setInterval(function() {
-      self.loadSatellite();
+      self.loadSatelliteTimes();
     }, 5 * 60 * 1000);
   }
 }

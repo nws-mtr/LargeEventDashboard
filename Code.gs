@@ -23,13 +23,15 @@ var NWS_USER_AGENT = "LargeEventDashboard/2.0 (Google Apps Script)";
 // WMS configuration for MRMS radar
 var RADAR_WMS_URL = "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows";
 
-// WMS configuration for GOES-18 satellite (Iowa State Mesonet)
-var SATELLITE_WMS_URL = "https://mesonet.agron.iastate.edu/cgi-bin/wms/goes_west.cgi";
+// Satellite imagery via SSEC RealEarth (GOES-18 ABI, tile API with time dimension)
+var SATELLITE_TILE_URL = "https://realearth.ssec.wisc.edu/api/image";
+var SATELLITE_TIMES_URL = "https://realearth.ssec.wisc.edu/api/times";
 var SATELLITE_CHANNELS = {
-  "conus_ch02": "Visible (0.64µm)",
-  "conus_ch09": "Water Vapor (6.9µm)",
-  "conus_ch13": "Clean IR (10.3µm)"
+  "G18-ABI-CONUS-BAND02": "Visible (0.64µm)",
+  "G18-ABI-CONUS-BAND09": "Water Vapor (6.9µm)",
+  "G18-ABI-CONUS-BAND13": "Clean IR (10.3µm)"
 };
+var SATELLITE_LOOP_MINUTES = 30;  // how many minutes of satellite to loop
 
 // Cache durations in seconds
 var CACHE_WEATHER = 300;    // 5 minutes
@@ -466,6 +468,7 @@ function getWeatherAlerts() {
 }
 
 // ── Radar WMS Time Dimension (parsed from GetCapabilities) ──────────────────
+// Returns only the last 30 minutes of frames for the client-side loop.
 function getRadarTimes() {
   var cached = cacheGet('radar_times');
   if (cached) return cached;
@@ -488,7 +491,18 @@ function getRadarTimes() {
       throw new Error('No time dimension found in WMS capabilities');
     }
 
-    var times = timeMatch[1].split(',').map(function(t) { return t.trim(); });
+    var allTimes = timeMatch[1].split(',').map(function(t) { return t.trim(); });
+
+    // Filter to last 30 minutes
+    var cutoff = new Date(Date.now() - 30 * 60 * 1000);
+    var times = allTimes.filter(function(t) {
+      return new Date(t) >= cutoff;
+    });
+
+    // Fallback: if filter leaves too few, take last 15 frames (~30 min at 2-min cadence)
+    if (times.length < 3 && allTimes.length > 0) {
+      times = allTimes.slice(-15);
+    }
 
     var result = {
       timestamp: new Date().toISOString(),
@@ -497,6 +511,7 @@ function getRadarTimes() {
       layer: 'conus_bref_qcd',
       style: 'radar_reflectivity',
       times: times,
+      totalAvailable: allTimes.length,
       timeCount: times.length
     };
 
@@ -512,19 +527,64 @@ function getRadarTimes() {
   }
 }
 
-// ── Satellite WMS Config (GOES-18 via Iowa State Mesonet) ───────────────────
-// Iowa State Mesonet WMS serves only the latest frame per channel (no time
-// dimension), so we return the WMS URL + channel metadata — no time parsing.
-function getSatelliteConfig(channel) {
-  channel = channel || 'conus_ch02';
+// ── Satellite Times (GOES-18 via SSEC RealEarth tile API) ───────────────────
+// Fetches available timestamps for a given channel and returns the last 30 min.
+// SSEC times format: "20260208.020117" (YYYYMMdd.HHmmss)
+function getSatelliteTimes(channel) {
+  channel = channel || 'G18-ABI-CONUS-BAND02';
+  var cacheKey = 'satellite_times_' + channel;
 
-  return {
-    timestamp: new Date().toISOString(),
-    source: 'GOES-18 (Iowa State Mesonet)',
-    wmsUrl: SATELLITE_WMS_URL,
-    channel: channel,
-    channelName: SATELLITE_CHANNELS[channel] || channel
-  };
+  var cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  try {
+    var url = SATELLITE_TIMES_URL + '?products=' + channel;
+    var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error('SSEC times API HTTP ' + response.getResponseCode());
+    }
+
+    var data = JSON.parse(response.getContentText());
+    var allTimes = data[channel] || [];
+
+    // Filter to last SATELLITE_LOOP_MINUTES
+    // Parse SSEC format "YYYYMMdd.HHmmss" to Date for comparison
+    var cutoffMs = Date.now() - SATELLITE_LOOP_MINUTES * 60 * 1000;
+
+    var times = allTimes.filter(function(t) {
+      // "20260208.020117" → "2026-02-08T02:01:17Z"
+      var iso = t.substring(0,4) + '-' + t.substring(4,6) + '-' + t.substring(6,8) +
+                'T' + t.substring(9,11) + ':' + t.substring(11,13) + ':' + t.substring(13,15) + 'Z';
+      return new Date(iso).getTime() >= cutoffMs;
+    });
+
+    // Fallback: if filter leaves too few, take last 6 frames (~30 min at 5-min cadence)
+    if (times.length < 2 && allTimes.length > 0) {
+      times = allTimes.slice(-6);
+    }
+
+    var result = {
+      timestamp: new Date().toISOString(),
+      source: 'GOES-18 (SSEC RealEarth)',
+      tileUrl: SATELLITE_TILE_URL,
+      channel: channel,
+      channelName: SATELLITE_CHANNELS[channel] || channel,
+      times: times,
+      totalAvailable: allTimes.length,
+      timeCount: times.length
+    };
+
+    cachePut(cacheKey, result, CACHE_SATELLITE);
+    return result;
+  } catch (e) {
+    Logger.log('Error fetching satellite times: ' + e.message);
+    return {
+      error: 'Unable to fetch satellite times: ' + e.message,
+      timestamp: new Date().toISOString(),
+      times: [],
+      channel: channel
+    };
+  }
 }
 
 // Return available satellite channels
@@ -539,7 +599,7 @@ function warmCache() {
   getGridpointForecast();
   getWeatherAlerts();
   getRadarTimes();
-  // Satellite WMS has no time dimension — no cache warming needed
+  getSatelliteTimes();  // warm default VIS channel
   Logger.log('Cache warmed at ' + new Date().toISOString());
 }
 

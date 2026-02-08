@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="referrer" content="no-referrer">
   <base target="_top">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -101,14 +102,25 @@
         <h2>Satellite — GOES-18</h2>
         <div class="satellite-content">
           <div class="satellite-channel-selector">
-            <button class="channel-btn active" data-channel="conus_ch02" title="Visible (0.64µm)">VIS</button>
-            <button class="channel-btn" data-channel="conus_ch09" title="Water Vapor (6.9µm)">WV</button>
-            <button class="channel-btn" data-channel="conus_ch13" title="Clean IR (10.3µm)">IR</button>
+            <button class="channel-btn active" data-channel="G18-ABI-CONUS-BAND02" title="Visible (0.64µm)">VIS</button>
+            <button class="channel-btn" data-channel="G18-ABI-CONUS-BAND09" title="Water Vapor (6.9µm)">WV</button>
+            <button class="channel-btn" data-channel="G18-ABI-CONUS-BAND13" title="Clean IR (10.3µm)">IR</button>
           </div>
           <div id="satellite-map"></div>
-          <div class="satellite-info-bar">
-            <span id="satellite-timestamp" class="timestamp">Loading...</span>
-            <button class="loop-btn" id="satellite-refresh" title="Refresh data">⟳</button>
+          <div class="loop-controls" id="satellite-controls">
+            <div class="loop-buttons">
+              <button class="loop-btn" id="satellite-step-back" title="Previous frame">⏮</button>
+              <button class="loop-btn loop-btn-play" id="satellite-play" title="Play/Pause">▶</button>
+              <button class="loop-btn" id="satellite-step-fwd" title="Next frame">⏭</button>
+              <button class="loop-btn" id="satellite-refresh" title="Refresh times">⟳</button>
+            </div>
+            <div class="loop-progress">
+              <input type="range" id="satellite-scrubber" class="frame-scrubber" min="0" max="0" value="0" />
+            </div>
+            <div class="loop-info">
+              <span id="satellite-frame-counter" class="frame-counter">0 / 0</span>
+              <span id="satellite-timestamp" class="timestamp">Loading...</span>
+            </div>
           </div>
         </div>
       </section>
@@ -137,7 +149,7 @@
         Last Updated: <span id="last-update">--</span>
       </div>
       <div class="data-sources">
-        Data: Synoptic API / NOAA NWS / Iowa State Mesonet GOES-18
+        Data: Synoptic API / NOAA NWS / SSEC RealEarth GOES-18
       </div>
     </footer>
 
