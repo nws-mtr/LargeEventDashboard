@@ -1,126 +1,22 @@
 <script>
 // ============================================================================
 // JavaScript.html — Client-side Dashboard Logic
-// Leaflet WMS radar loop + satellite image loop + google.script.run RPC
+// Leaflet WMS radar + satellite maps, SVG forecasts, google.script.run RPC
 // ============================================================================
-
-// ── Loop Player (reusable for radar WMS and satellite images) ─────────────
-class LoopPlayer {
-  constructor(opts) {
-    this.id = opts.id;               // 'radar' or 'satellite'
-    this.frames = [];                // array of frame data (timestamps or URLs)
-    this.currentIndex = 0;
-    this.playing = false;
-    this.intervalId = null;
-    this.speed = opts.speed || 500;  // ms per frame
-    this.onFrame = opts.onFrame;     // callback(frameData, index)
-
-    // DOM elements
-    this.playBtn = document.getElementById(this.id + '-play');
-    this.stepBack = document.getElementById(this.id + '-step-back');
-    this.stepFwd = document.getElementById(this.id + '-step-fwd');
-    this.scrubber = document.getElementById(this.id + '-scrubber');
-    this.counter = document.getElementById(this.id + '-frame-counter');
-    this.timestamp = document.getElementById(this.id + '-timestamp');
-
-    this.bindEvents();
-  }
-
-  bindEvents() {
-    var self = this;
-    this.playBtn.addEventListener('click', function() { self.togglePlay(); });
-    this.stepBack.addEventListener('click', function() { self.pause(); self.step(-1); });
-    this.stepFwd.addEventListener('click', function() { self.pause(); self.step(1); });
-    this.scrubber.addEventListener('input', function() {
-      self.pause();
-      self.goTo(parseInt(self.scrubber.value));
-    });
-  }
-
-  setFrames(frames) {
-    this.frames = frames || [];
-    this.currentIndex = Math.max(0, this.frames.length - 1); // start at latest
-    this.scrubber.min = 0;
-    this.scrubber.max = Math.max(0, this.frames.length - 1);
-    this.scrubber.value = this.currentIndex;
-    this.updateUI();
-    if (this.frames.length > 0) {
-      this.showFrame();
-    }
-  }
-
-  showFrame() {
-    if (this.frames.length === 0) return;
-    var frame = this.frames[this.currentIndex];
-    if (this.onFrame) this.onFrame(frame, this.currentIndex);
-    this.updateUI();
-  }
-
-  updateUI() {
-    var total = this.frames.length;
-    this.counter.textContent = total > 0 ? (this.currentIndex + 1) + ' / ' + total : '0 / 0';
-    this.scrubber.value = this.currentIndex;
-    this.playBtn.textContent = this.playing ? '⏸' : '▶';
-    if (this.playing) {
-      this.playBtn.classList.add('playing');
-    } else {
-      this.playBtn.classList.remove('playing');
-    }
-  }
-
-  step(direction) {
-    if (this.frames.length === 0) return;
-    this.currentIndex = (this.currentIndex + direction + this.frames.length) % this.frames.length;
-    this.showFrame();
-  }
-
-  goTo(index) {
-    if (index < 0 || index >= this.frames.length) return;
-    this.currentIndex = index;
-    this.showFrame();
-  }
-
-  play() {
-    if (this.frames.length < 2) return;
-    this.playing = true;
-    this.updateUI();
-    var self = this;
-    this.intervalId = setInterval(function() {
-      self.step(1);
-    }, this.speed);
-  }
-
-  pause() {
-    this.playing = false;
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
-    }
-    this.updateUI();
-  }
-
-  togglePlay() {
-    if (this.playing) { this.pause(); } else { this.play(); }
-  }
-}
-
 
 // ── Weather Dashboard ─────────────────────────────────────────────────────
 class WeatherDashboard {
   constructor() {
     this.config = null;
     this.radarMap = null;
-    this.radarWmsLayers = {};    // keyed by ISO timestamp
-    this.radarTimes = [];
-    this.activeRadarTime = null;
-    this.radarPlayer = null;
+    this.activeRadarLayer = null;
+    this.radarCounties = null;
 
     this.satelliteMap = null;
-    this.satelliteWmsLayers = {};   // keyed by SSEC timestamp
-    this.satelliteTimes = [];
-    this.activeSatTime = null;
-    this.satellitePlayer = null;
-    this.satelliteChannel = 'G18-ABI-CONUS-BAND13'; // default to IR
+    this.activeSatLayer = null;
+    this.satLabelsLayer = null;
+    this.satCounties = null;
+    this.satelliteChannel = 'G18-ABI-CONUS-BAND02'; // default to VIS
     this.init();
   }
 
@@ -176,9 +72,9 @@ class WeatherDashboard {
   loadAllData() {
     this.loadCurrentWeather();
     this.loadHourlyForecast();
-    this.loadWeatherAlerts();
-    this.loadRadarTimes();
-    this.loadSatelliteTimes();
+    this.loadKeyPoints();
+    this.loadLatestRadarFrame();
+    this.loadLatestSatelliteFrame();
     this.updateLastUpdateTime();
   }
 
@@ -230,99 +126,73 @@ class WeatherDashboard {
       opacity: 1
     }).addTo(this.radarMap);
 
-    // Init loop player
-    var self = this;
-    this.radarPlayer = new LoopPlayer({
-      id: 'radar',
-      speed: 400,
-      onFrame: function(timeStr, index) {
-        self.showRadarFrame(timeStr);
-      }
-    });
+    // Add timestamp overlay div
+    var radarTimestamp = L.DomUtil.create('div', 'map-timestamp-overlay');
+    radarTimestamp.id = 'radar-timestamp-overlay';
+    radarTimestamp.textContent = 'Loading...';
+    document.getElementById('radar-map').appendChild(radarTimestamp);
 
-    // Refresh button fetches new WMS times
-    document.getElementById('radar-refresh').addEventListener('click', function() {
-      self.loadRadarTimes();
-    });
+    // Load latest radar frame
+    this.loadLatestRadarFrame();
   }
 
-  loadRadarTimes() {
-    // Fetch WMS time dimension via Code.gs (pre-filtered to last 30 min)
+  loadLatestRadarFrame() {
+    // Fetch WMS time dimension via Code.gs
     google.script.run
       .withSuccessHandler(function(data) {
         if (data.error) {
           console.error('Radar times error:', data.error);
+          document.getElementById('radar-timestamp-overlay').textContent = 'Error loading';
           return;
         }
-        this.radarTimes = data.times || [];
-        // Server already filters to last 30 min — use all returned frames
-        this.radarPlayer.setFrames(this.radarTimes);
-
-        // Update timestamp display
-        if (this.radarTimes.length > 0) {
-          var latest = this.radarTimes[this.radarTimes.length - 1];
-          document.getElementById('radar-timestamp').textContent =
-            this.formatTimePST(latest) + ' (MRMS)';
+        var times = data.times || [];
+        if (times.length === 0) {
+          document.getElementById('radar-timestamp-overlay').textContent = 'No data';
+          return;
         }
-        // Default: paused on latest frame (user can press play)
+
+        // Show only the latest frame
+        var latestTime = times[times.length - 1];
+        this.showRadarFrame(latestTime);
       }.bind(this))
       .withFailureHandler(function(err) {
         console.error('Radar times fetch error:', err);
+        document.getElementById('radar-timestamp-overlay').textContent = 'Error loading';
       })
       .getRadarTimes();
   }
 
   showRadarFrame(timeStr) {
-    // Hide current active WMS layer
-    if (this.activeRadarTime && this.radarWmsLayers[this.activeRadarTime]) {
-      this.radarMap.removeLayer(this.radarWmsLayers[this.activeRadarTime]);
+    // Remove existing radar layer if any
+    if (this.activeRadarLayer) {
+      this.radarMap.removeLayer(this.activeRadarLayer);
     }
 
-    // Create or reuse WMS tile layer for this timestamp
-    if (!this.radarWmsLayers[timeStr]) {
-      this.radarWmsLayers[timeStr] = L.tileLayer.wms(
-        'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows?', {
-          layers: 'conus_bref_qcd',
-          format: 'image/png',
-          transparent: true,
-          version: '1.3.0',
-          crs: L.CRS.EPSG3857,
-          styles: 'radar_reflectivity',
-          time: timeStr,
-          opacity: 0.7,
-          attribution: 'MRMS — NOAA/NCEP'
-        }
-      );
-    }
+    // Create WMS tile layer for this timestamp
+    this.activeRadarLayer = L.tileLayer.wms(
+      'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows?', {
+        layers: 'conus_bref_qcd',
+        format: 'image/png',
+        transparent: true,
+        version: '1.3.0',
+        crs: L.CRS.EPSG3857,
+        styles: 'radar_reflectivity',
+        time: timeStr,
+        opacity: 0.7,
+        attribution: 'MRMS — NOAA/NCEP'
+      }
+    );
 
-    this.radarWmsLayers[timeStr].addTo(this.radarMap);
-    this.activeRadarTime = timeStr;
+    this.activeRadarLayer.addTo(this.radarMap);
 
     // Ensure county boundaries stay on top
     if (this.radarCounties) {
       this.radarCounties.bringToFront();
     }
 
-    // Update timestamp label
-    document.getElementById('radar-timestamp').textContent =
-      this.formatTimePST(timeStr) + ' (MRMS)';
-
-    // Garbage-collect old layers not in current loop set
-    this.pruneRadarLayers();
-  }
-
-  pruneRadarLayers() {
-    var currentFrames = this.radarPlayer.frames;
-    var keep = {};
-    for (var i = 0; i < currentFrames.length; i++) {
-      keep[currentFrames[i]] = true;
-    }
-    for (var key in this.radarWmsLayers) {
-      if (!keep[key] && key !== this.activeRadarTime) {
-        this.radarMap.removeLayer(this.radarWmsLayers[key]);
-        delete this.radarWmsLayers[key];
-      }
-    }
+    // Update timestamp overlay
+    document.getElementById('radar-timestamp-overlay').textContent =
+      this.formatTimePST(timeStr);
   }
 
   // ── Satellite: Leaflet Map + SSEC RealEarth Tile Loop (GOES-18) ─────
@@ -382,84 +252,74 @@ class WeatherDashboard {
       opacity: 1
     }).addTo(this.satelliteMap);
 
-    // Init satellite loop player
-    var self = this;
-    this.satellitePlayer = new LoopPlayer({
-      id: 'satellite',
-      speed: 500,
-      onFrame: function(timeStr, index) {
-        self.showSatelliteFrame(timeStr);
-      }
-    });
-
-    // Refresh button
-    document.getElementById('satellite-refresh').addEventListener('click', function() {
-      self.loadSatelliteTimes();
-    });
+    // Add timestamp overlay div
+    var satTimestamp = L.DomUtil.create('div', 'map-timestamp-overlay');
+    satTimestamp.id = 'satellite-timestamp-overlay';
+    satTimestamp.textContent = 'Loading...';
+    document.getElementById('satellite-map').appendChild(satTimestamp);
 
     // Channel selector buttons
     var channelBtns = document.querySelectorAll('.channel-btn');
+    var self = this;
     channelBtns.forEach(function(btn) {
       btn.addEventListener('click', function() {
         channelBtns.forEach(function(b) { b.classList.remove('active'); });
         btn.classList.add('active');
         self.satelliteChannel = btn.getAttribute('data-channel');
-        // Clear cached layers for old channel
-        self.clearSatelliteLayers();
-        self.loadSatelliteTimes();
+        // Load latest frame for new channel
+        self.loadLatestSatelliteFrame();
       });
     });
+
+    // Load latest satellite frame
+    this.loadLatestSatelliteFrame();
   }
 
-  loadSatelliteTimes() {
-    // Fetch SSEC RealEarth times for the selected channel (pre-filtered to last 30 min)
+  loadLatestSatelliteFrame() {
+    // Fetch SSEC RealEarth times for the selected channel
     google.script.run
       .withSuccessHandler(function(data) {
         if (data.error) {
           console.error('Satellite times error:', data.error);
-          document.getElementById('satellite-timestamp').textContent = 'Error loading';
+          document.getElementById('satellite-timestamp-overlay').textContent = 'Error loading';
           return;
         }
-        this.satelliteTimes = data.times || [];
-        this.satellitePlayer.setFrames(this.satelliteTimes);
-
-        // Update timestamp display
-        if (this.satelliteTimes.length > 0) {
-          var latest = this.satelliteTimes[this.satelliteTimes.length - 1];
-          document.getElementById('satellite-timestamp').textContent =
-            this.formatSsecTime(latest) + ' (' + (data.channelName || this.satelliteChannel) + ')';
+        var times = data.times || [];
+        if (times.length === 0) {
+          document.getElementById('satellite-timestamp-overlay').textContent = 'No data';
+          return;
         }
-        // Default: paused on latest frame
+
+        // Show only the latest frame
+        var latestTime = times[times.length - 1];
+        this.showSatelliteFrame(latestTime, data.channelName);
       }.bind(this))
       .withFailureHandler(function(err) {
         console.error('Satellite times fetch error:', err);
+        document.getElementById('satellite-timestamp-overlay').textContent = 'Error loading';
       })
       .getSatelliteTimes(this.satelliteChannel);
   }
 
-  showSatelliteFrame(timeStr) {
-    // Hide current active satellite layer
-    if (this.activeSatTime && this.satelliteWmsLayers[this.activeSatTime]) {
-      this.satelliteMap.removeLayer(this.satelliteWmsLayers[this.activeSatTime]);
+  showSatelliteFrame(timeStr, channelName) {
+    // Remove existing satellite layer if any
+    if (this.activeSatLayer) {
+      this.satelliteMap.removeLayer(this.activeSatLayer);
     }
 
-    // Create or reuse tile layer for this SSEC timestamp
-    if (!this.satelliteWmsLayers[timeStr]) {
-      // SSEC RealEarth tile URL: /api/image?products=CHANNEL.100&x={x}&y={y}&z={z}&time=TIMESTAMP
-      this.satelliteWmsLayers[timeStr] = L.tileLayer(
-        'https://realearth.ssec.wisc.edu/api/image?products=' +
-          this.satelliteChannel + '.100&x={x}&y={y}&z={z}&time=' + timeStr, {
-          opacity: 0.85,
-          maxZoom: 12,
-          crossOrigin: 'anonymous',
-          referrerPolicy: 'no-referrer',
-          attribution: 'GOES-18 — SSEC RealEarth'
-        }
-      );
-    }
+    // Create tile layer for this SSEC timestamp
+    this.activeSatLayer = L.tileLayer(
+      'https://realearth.ssec.wisc.edu/api/image?products=' +
+        this.satelliteChannel + '.100&x={x}&y={y}&z={z}&time=' + timeStr, {
+        opacity: 0.85,
+        maxZoom: 12,
+        crossOrigin: 'anonymous',
+        referrerPolicy: 'no-referrer',
+        attribution: 'GOES-18 — SSEC RealEarth'
+      }
+    );
 
-    this.satelliteWmsLayers[timeStr].addTo(this.satelliteMap);
-    this.activeSatTime = timeStr;
+    this.activeSatLayer.addTo(this.satelliteMap);
 
     // Ensure labels stay on top
     if (this.satLabelsLayer) {
@@ -471,40 +331,15 @@ class WeatherDashboard {
       this.satCounties.bringToFront();
     }
 
-    // Update timestamp label
+    // Update timestamp overlay
     var channelNames = {
       'G18-ABI-CONUS-BAND02': 'Visible',
       'G18-ABI-CONUS-BAND09': 'Water Vapor',
       'G18-ABI-CONUS-BAND13': 'Clean IR'
     };
-    var chName = channelNames[this.satelliteChannel] || this.satelliteChannel;
-    document.getElementById('satellite-timestamp').textContent =
-      this.formatSsecTime(timeStr) + ' (' + chName + ')';
-
-    // Garbage-collect old layers not in current loop set
-    this.pruneSatelliteLayers();
-  }
-
-  clearSatelliteLayers() {
-    for (var key in this.satelliteWmsLayers) {
-      this.satelliteMap.removeLayer(this.satelliteWmsLayers[key]);
-    }
-    this.satelliteWmsLayers = {};
-    this.activeSatTime = null;
-  }
-
-  pruneSatelliteLayers() {
-    var currentFrames = this.satellitePlayer.frames;
-    var keep = {};
-    for (var i = 0; i < currentFrames.length; i++) {
-      keep[currentFrames[i]] = true;
-    }
-    for (var key in this.satelliteWmsLayers) {
-      if (!keep[key] && key !== this.activeSatTime) {
-        this.satelliteMap.removeLayer(this.satelliteWmsLayers[key]);
-        delete this.satelliteWmsLayers[key];
-      }
-    }
+    var chName = channelName || channelNames[this.satelliteChannel] || this.satelliteChannel;
+    document.getElementById('satellite-timestamp-overlay').textContent =
+      this.formatSsecTime(timeStr);
   }
 
   // Format SSEC time string "20260208.020117" → "6:01 PM" in PST
@@ -574,40 +409,18 @@ class WeatherDashboard {
         document.getElementById('wind').textContent =
           ws !== null ? cardinal + ' ' + Math.round(ws) + ' mph' : '--';
 
-        // Wind direction (degrees)
-        var wdir = obs.wind && obs.wind.direction ? obs.wind.direction.value : null;
-        document.getElementById('wind-dir').textContent =
-          wdir !== null ? Math.round(wdir) + '°' : '--';
+        // Wind direction (cardinal)
+        document.getElementById('wind-dir').textContent = cardinal || '--';
 
         // Gusts
         var gust = obs.wind && obs.wind.gust ? obs.wind.gust.value : null;
         document.getElementById('wind-gust').textContent =
           (gust !== null && gust > 0) ? Math.round(gust) + ' mph' : 'None';
 
-        // Altimeter
-        var alt = obs.pressure && obs.pressure.altimeter ? obs.pressure.altimeter.value : null;
-        document.getElementById('pressure').textContent =
-          alt !== null ? alt.toFixed(2) + ' inHg' : '--';
-
-        // Sea Level Pressure
-        var slp = obs.pressure && obs.pressure.seaLevel ? obs.pressure.seaLevel.value : null;
-        document.getElementById('slp').textContent =
-          slp !== null ? slp.toFixed(1) + ' mb' : '--';
-
-        // Visibility
-        var vis = obs.visibility ? obs.visibility.value : null;
-        document.getElementById('visibility').textContent =
-          vis !== null ? vis.toFixed(1) + ' mi' : '--';
-
         // 1-hr Precipitation
         var precip = obs.precipitation && obs.precipitation.oneHour ? obs.precipitation.oneHour.value : null;
         document.getElementById('precip-1hr').textContent =
           (precip !== null && precip > 0) ? precip.toFixed(2) + '"' : '0.00"';
-
-        // Clouds
-        var clouds = obs.clouds || [];
-        document.getElementById('clouds').textContent =
-          clouds.length > 0 ? clouds.join(' · ') : 'Clear';
 
         // Data source in footer
         if (data.source && data.station) {
@@ -639,79 +452,8 @@ class WeatherDashboard {
           return;
         }
 
-        // ── Build scrollable table ──
-        var container = document.getElementById('hourly-container');
-        var tableHTML = '<div class="forecast-table-wrap"><table class="forecast-table">';
-
-        // Header row
-        tableHTML += '<thead><tr>' +
-          '<th class="ft-sticky-col">Hour</th>' +
-          '<th>Temp</th>' +
-          '<th>Dewpt</th>' +
-          '<th>RH</th>' +
-          '<th>Wind</th>' +
-          '<th>Gust</th>' +
-          '<th>Sky</th>' +
-          '<th>PoP</th>' +
-          '<th>QPF</th>' +
-          '</tr></thead><tbody>';
-
-        for (var i = 0; i < hours.length; i++) {
-          var h = hours[i];
-          var dt = new Date(h.time);
-          var timeStr = dt.toLocaleTimeString('en-US', {
-            hour: 'numeric', hour12: true, timeZone: 'America/Los_Angeles'
-          });
-          var dayStr = dt.toLocaleDateString('en-US', {
-            weekday: 'short', timeZone: 'America/Los_Angeles'
-          });
-
-          // Color-code temp
-          var tempClass = '';
-          if (h.temperature !== null) {
-            if (h.temperature >= 80) tempClass = 'ft-hot';
-            else if (h.temperature >= 60) tempClass = 'ft-warm';
-            else if (h.temperature <= 32) tempClass = 'ft-freeze';
-            else if (h.temperature <= 45) tempClass = 'ft-cold';
-          }
-
-          // Color-code PoP
-          var popClass = '';
-          if (h.probabilityOfPrecipitation !== null && h.probabilityOfPrecipitation > 0) {
-            if (h.probabilityOfPrecipitation >= 60) popClass = 'ft-pop-high';
-            else if (h.probabilityOfPrecipitation >= 30) popClass = 'ft-pop-med';
-            else popClass = 'ft-pop-low';
-          }
-
-          // Wind string
-          var windStr = '--';
-          if (h.windSpeed !== null) {
-            windStr = (h.windCardinal || '') + ' ' + Math.round(h.windSpeed);
-          }
-
-          var gustStr = h.windGust !== null ? Math.round(h.windGust) : '--';
-          var skyStr = h.skyCover !== null ? h.skyCover + '%' : '--';
-          var popStr = h.probabilityOfPrecipitation !== null ? h.probabilityOfPrecipitation + '%' : '--';
-          var qpfStr = (h.qpf !== null && h.qpf > 0) ? h.qpf.toFixed(2) + '"' : '--';
-
-          tableHTML += '<tr>' +
-            '<td class="ft-sticky-col"><span class="ft-day">' + dayStr + '</span> ' + timeStr + '</td>' +
-            '<td class="ft-temp ' + tempClass + '">' + (h.temperature !== null ? Math.round(h.temperature) + '°' : '--') + '</td>' +
-            '<td class="ft-dewpt">' + (h.dewpoint !== null ? Math.round(h.dewpoint) + '°' : '--') + '</td>' +
-            '<td>' + (h.relativeHumidity !== null ? h.relativeHumidity + '%' : '--') + '</td>' +
-            '<td class="ft-wind">' + windStr + '</td>' +
-            '<td class="ft-gust">' + gustStr + '</td>' +
-            '<td>' + skyStr + '</td>' +
-            '<td class="' + popClass + '">' + popStr + '</td>' +
-            '<td>' + qpfStr + '</td>' +
-            '</tr>';
-        }
-
-        tableHTML += '</tbody></table></div>';
-        container.innerHTML = tableHTML;
-
-        // ── Update Forecast Summary panel ──
-        this.updateForecastSummary(hours);
+        // ── Build graphical time series ──
+        this.buildTimelineChart(hours, data.adverseThresholds);
 
       }.bind(this))
       .withFailureHandler(function(err) {
@@ -722,103 +464,275 @@ class WeatherDashboard {
       .getGridpointForecast();
   }
 
-  // ── Forecast Summary (derived from gridpoint data) ────────────────────
-  updateForecastSummary(hours) {
-    var summary = document.getElementById('forecast-summary');
-    if (!hours || hours.length === 0) {
-      summary.innerHTML = '<div class="error-msg">No data</div>';
-      return;
-    }
-
-    // Compute summary stats from gridpoint hours
-    var temps = hours.map(function(h) { return h.temperature; }).filter(function(v) { return v !== null; });
-    var pops = hours.map(function(h) { return h.probabilityOfPrecipitation; }).filter(function(v) { return v !== null; });
-    var winds = hours.map(function(h) { return h.windSpeed; }).filter(function(v) { return v !== null; });
-    var gusts = hours.map(function(h) { return h.windGust; }).filter(function(v) { return v !== null; });
-    var skies = hours.map(function(h) { return h.skyCover; }).filter(function(v) { return v !== null; });
-    var qpfs = hours.map(function(h) { return h.qpf; }).filter(function(v) { return v !== null && v > 0; });
-
-    var maxTemp = temps.length ? Math.round(Math.max.apply(null, temps)) : '--';
-    var minTemp = temps.length ? Math.round(Math.min.apply(null, temps)) : '--';
-    var maxPop = pops.length ? Math.max.apply(null, pops) : 0;
-    var maxWind = winds.length ? Math.round(Math.max.apply(null, winds)) : '--';
-    var maxGust = gusts.length ? Math.round(Math.max.apply(null, gusts)) : '--';
-    var avgSky = skies.length ? Math.round(skies.reduce(function(a, b) { return a + b; }, 0) / skies.length) : '--';
-    var totalQPF = qpfs.length ? qpfs.reduce(function(a, b) { return a + b; }, 0).toFixed(2) : '0.00';
-
-    // Sky description
-    var skyDesc = '--';
-    if (typeof avgSky === 'number') {
-      if (avgSky <= 10) skyDesc = 'Clear';
-      else if (avgSky <= 30) skyDesc = 'Mostly Clear';
-      else if (avgSky <= 60) skyDesc = 'Partly Cloudy';
-      else if (avgSky <= 85) skyDesc = 'Mostly Cloudy';
-      else skyDesc = 'Overcast';
-    }
-
-    // Precip risk
-    var precipRisk = 'None';
-    var precipClass = 'ft-pop-none';
-    if (maxPop >= 60) { precipRisk = 'Likely (' + maxPop + '%)'; precipClass = 'ft-pop-high'; }
-    else if (maxPop >= 30) { precipRisk = 'Chance (' + maxPop + '%)'; precipClass = 'ft-pop-med'; }
-    else if (maxPop > 0) { precipRisk = 'Slight (' + maxPop + '%)'; precipClass = 'ft-pop-low'; }
-
-    summary.innerHTML =
-      '<div class="summary-grid">' +
-        '<div class="summary-stat">' +
-          '<div class="summary-label">Temp Range</div>' +
-          '<div class="summary-value">' + minTemp + '° – ' + maxTemp + '°F</div>' +
-        '</div>' +
-        '<div class="summary-stat">' +
-          '<div class="summary-label">Sky Cover</div>' +
-          '<div class="summary-value">' + skyDesc + ' (' + avgSky + '%)</div>' +
-        '</div>' +
-        '<div class="summary-stat">' +
-          '<div class="summary-label">Precip Risk</div>' +
-          '<div class="summary-value ' + precipClass + '">' + precipRisk + '</div>' +
-        '</div>' +
-        '<div class="summary-stat">' +
-          '<div class="summary-label">Total QPF</div>' +
-          '<div class="summary-value">' + totalQPF + '"</div>' +
-        '</div>' +
-        '<div class="summary-stat">' +
-          '<div class="summary-label">Max Wind</div>' +
-          '<div class="summary-value">' + maxWind + ' mph</div>' +
-        '</div>' +
-        '<div class="summary-stat">' +
-          '<div class="summary-label">Max Gust</div>' +
-          '<div class="summary-value">' + maxGust + ' mph</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="summary-source">Source: ' + 'NWS Gridpoint Raw Data (MTR)</div>';
+  // ── Build Graphical Timeline Chart ──────────────────────────────────────
+  buildTimelineChart(hours, thresholds) {
+    var container = document.getElementById('hourly-container');
+    
+    // Get thresholds (with defaults if not provided)
+    var maxTempThresh = (thresholds && thresholds.maxTemp) || 80;
+    var minRainThresh = (thresholds && thresholds.minRainChance) || 15;
+    var minSkyThresh  = (thresholds && thresholds.minSkyCover) || 50;
+    
+    // Extract data arrays
+    var temps = hours.map(function(h) { return h.temperature; });
+    var rains = hours.map(function(h) { return h.probabilityOfPrecipitation; });
+    var skies = hours.map(function(h) { return h.skyCover; });
+    
+    // Format time labels (show every 3rd hour to avoid crowding)
+    var labels = hours.map(function(h, i) {
+      var dt = new Date(h.time);
+      var hr = dt.toLocaleTimeString('en-US', {
+        hour: 'numeric', hour12: true, timeZone: 'America/Los_Angeles'
+      });
+      if (i % 3 === 0) {
+        var day = dt.toLocaleDateString('en-US', {
+          weekday: 'short', timeZone: 'America/Los_Angeles'
+        });
+        return hr + '|' + day;
+      }
+      return null; // skip label for non-3rd hours
+    });
+    
+    // Build HTML
+    var html = '<div class="timeline-chart">';
+    
+    html += '<div class="timeline-rows">';
+    
+    // Temperature row
+    html += '<div class="timeline-row">' +
+      '<div class="row-header">Temperature (°F)</div>' +
+      '<div class="row-graph" id="graph-temp"></div></div>';
+    
+    // Rain chance row
+    html += '<div class="timeline-row">' +
+      '<div class="row-header">Rain Chance (%)</div>' +
+      '<div class="row-graph" id="graph-rain"></div></div>';
+    
+    // Cloud cover row
+    html += '<div class="timeline-row">' +
+      '<div class="row-header">Cloud Cover (%)</div>' +
+      '<div class="row-graph" id="graph-sky"></div></div>';
+    
+    html += '</div></div>';
+    
+    container.innerHTML = html;
+    
+    // Now render SVG into each graph container
+    var self = this;
+    // Use requestAnimationFrame so the DOM has time to layout
+    requestAnimationFrame(function() {
+      self.renderLineGraph('graph-temp', temps, labels, '#2196f3', 'temp', maxTempThresh, 'above', hours);
+      self.renderLineGraph('graph-rain', rains, labels, '#4caf50', 'pct', minRainThresh, 'above', hours);
+      self.renderLineGraph('graph-sky', skies, labels, '#9e9e9e', 'pct', minSkyThresh, 'above', hours);
+    });
   }
 
-  // ── Weather Alerts ────────────────────────────────────────────────────
-  loadWeatherAlerts() {
+  // ── Render SVG Line Graph ──────────────────────────────────────────────
+  renderLineGraph(containerId, data, labels, color, mode, threshold, threshDir, hours) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    
+    var w = container.clientWidth;
+    var h = container.clientHeight;
+    if (w === 0 || h === 0) return;
+    
+    // Margins (increased left/bottom for larger font)
+    var ml = 38, mr = 8, mt = 14, mb = 28;
+    var pw = w - ml - mr;
+    var ph = h - mt - mb;
+    
+    // Compute Y range
+    var validData = data.filter(function(v) { return v !== null; });
+    if (validData.length === 0) {
+      container.innerHTML = '<div style="text-align:center;color:#9fa8da;padding:1rem;font-size:0.8rem;">No data</div>';
+      return;
+    }
+    
+    var yMin, yMax;
+    if (mode === 'pct') {
+      yMin = 0;
+      yMax = 100;
+    } else {
+      // Anchor to 5-degree increments for temperature
+      yMin = Math.floor((Math.min.apply(null, validData) - 2) / 5) * 5;
+      yMax = Math.ceil((Math.max.apply(null, validData) + 2) / 5) * 5;
+      if (yMax - yMin < 10) {
+        var mid = (yMax + yMin) / 2;
+        yMin = Math.floor((mid - 5) / 5) * 5;
+        yMax = Math.ceil((mid + 5) / 5) * 5;
+      }
+    }
+    var yRange = yMax - yMin || 1;
+    
+    // Helper: data index → x,y position
+    var n = data.length;
+    function getX(i) { return ml + (i / (n - 1)) * pw; }
+    function getY(val) { return mt + ph - ((val - yMin) / yRange) * ph; }
+    
+    // Build SVG
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" style="width:100%;height:100%">';
+    
+    // Adverse region shading
+    if (threshold !== null && threshold !== undefined) {
+      var inAdverse = false;
+      var segStart = 0;
+      for (var i = 0; i < n; i++) {
+        var val = data[i];
+        var isAdverse = val !== null && val > threshold;
+        if (isAdverse && !inAdverse) {
+          segStart = i;
+          inAdverse = true;
+        }
+        if ((!isAdverse || i === n - 1) && inAdverse) {
+          var segEnd = isAdverse ? i : i - 1;
+          var x1 = getX(Math.max(0, segStart - 0.5));
+          var x2 = getX(Math.min(n - 1, segEnd + 0.5));
+          svg += '<rect x="' + x1 + '" y="' + mt + '" width="' + (x2 - x1) + '" height="' + ph + '" fill="rgba(255,193,7,0.12)" stroke="rgba(255,193,7,0.35)" stroke-width="1" stroke-dasharray="4,2"/>';
+          inAdverse = false;
+        }
+      }
+    }
+    
+    // Threshold line
+    if (threshold !== null && threshold !== undefined && threshold >= yMin && threshold <= yMax) {
+      var threshY = getY(threshold);
+      svg += '<line x1="' + ml + '" y1="' + threshY + '" x2="' + (w - mr) + '" y2="' + threshY + '" stroke="rgba(255,193,7,0.5)" stroke-width="1" stroke-dasharray="6,3"/>';
+      svg += '<text x="' + (w - mr - 2) + '" y="' + (threshY - 3) + '" text-anchor="end" fill="rgba(255,193,7,0.7)" font-size="11" font-weight="600">' + threshold + '</text>';
+    }
+    
+    // Horizontal grid lines
+    if (mode === 'pct') {
+      // Percentage mode: 4 evenly spaced lines (0, 25, 50, 75, 100), skip lowest
+      for (var g = 1; g <= 4; g++) {
+        var gVal = yMin + (g / 4) * yRange;
+        var gy = getY(gVal);
+        svg += '<line x1="' + ml + '" y1="' + gy + '" x2="' + (w - mr) + '" y2="' + gy + '" stroke="rgba(40,53,147,0.3)" stroke-width="0.5"/>';
+        svg += '<text x="' + (ml - 4) + '" y="' + (gy + 4) + '" text-anchor="end" fill="#9fa8da" font-size="13">' + Math.round(gVal) + '</text>';
+      }
+    } else {
+      // Temperature mode: gridlines at every 5-degree increment, skip lowest
+      var firstLabel = true;
+      for (var gVal = yMin; gVal <= yMax; gVal += 5) {
+        var gy = getY(gVal);
+        svg += '<line x1="' + ml + '" y1="' + gy + '" x2="' + (w - mr) + '" y2="' + gy + '" stroke="rgba(40,53,147,0.3)" stroke-width="0.5"/>';
+        if (!firstLabel) {
+          svg += '<text x="' + (ml - 4) + '" y="' + (gy + 4) + '" text-anchor="end" fill="#9fa8da" font-size="13">' + Math.round(gVal) + '</text>';
+        }
+        firstLabel = false;
+      }
+    }
+    
+    // Vertical grid lines at every hourly data point (light grey, slightly opaque)
+    for (var i = 0; i < n; i++) {
+      var vx = getX(i);
+      svg += '<line x1="' + vx + '" y1="' + mt + '" x2="' + vx + '" y2="' + (h - mb) + '" stroke="rgba(200,200,200,0.12)" stroke-width="0.5"/>';
+    }
+    
+    // Vertical grid lines + time labels (at label positions only)
+    for (var i = 0; i < labels.length; i++) {
+      if (labels[i] !== null) {
+        var lx = getX(i);
+        svg += '<line x1="' + lx + '" y1="' + mt + '" x2="' + lx + '" y2="' + (h - mb) + '" stroke="rgba(40,53,147,0.2)" stroke-width="0.5"/>';
+        var parts = labels[i].split('|');
+        svg += '<text x="' + lx + '" y="' + (h - mb + 13) + '" text-anchor="middle" fill="#9fa8da" font-size="13">' + parts[0] + '</text>';
+        if (parts[1]) {
+          svg += '<text x="' + lx + '" y="' + (h - mb + 24) + '" text-anchor="middle" fill="#7986cb" font-size="11">' + parts[1] + '</text>';
+        }
+      }
+    }
+    
+    // ── Kickoff vertical line at 3:30 PM local time ──
+    if (hours && hours.length > 0) {
+      var kickoffDate = new Date('2026-02-08T15:30:00-08:00'); // 3:30 PM PST
+      var firstTime = new Date(hours[0].time).getTime();
+      var lastTime = new Date(hours[hours.length - 1].time).getTime();
+      var kickoffMs = kickoffDate.getTime();
+      if (kickoffMs >= firstTime && kickoffMs <= lastTime) {
+        // Interpolate fractional index
+        var kickoffIdx = (kickoffMs - firstTime) / (lastTime - firstTime) * (n - 1);
+        var kx = ml + (kickoffIdx / (n - 1)) * pw;
+        svg += '<line x1="' + kx.toFixed(1) + '" y1="' + mt + '" x2="' + kx.toFixed(1) + '" y2="' + (h - mb) + '" stroke="#f44336" stroke-width="3"/>';
+        svg += '<text x="' + (kx + 4).toFixed(1) + '" y="' + (mt + 12) + '" fill="#f44336" font-size="14" font-weight="700">Kickoff</text>';
+      }
+    }
+    
+    // Data line path
+    var pathParts = [];
+    var dotsSvg = '';
+    var firstPoint = true;
+    for (var i = 0; i < n; i++) {
+      if (data[i] === null) continue;
+      var px = getX(i);
+      var py = getY(data[i]);
+      pathParts.push((firstPoint ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1));
+      firstPoint = false;
+      
+      // Data point dot
+      var isAdverse = data[i] > threshold;
+      var dotColor = isAdverse ? '#ffc107' : color;
+      var dotR = isAdverse ? 3 : 2;
+      dotsSvg += '<circle cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) + '" r="' + dotR + '" fill="' + dotColor + '"/>';
+    }
+    
+    // Area fill under line
+    if (pathParts.length > 1) {
+      var areaPath = pathParts.join(' ');
+      var lastValidIdx = -1;
+      var firstValidIdx = -1;
+      for (var i = n - 1; i >= 0; i--) {
+        if (data[i] !== null) { lastValidIdx = i; break; }
+      }
+      for (var i = 0; i < n; i++) {
+        if (data[i] !== null) { firstValidIdx = i; break; }
+      }
+      if (firstValidIdx >= 0 && lastValidIdx >= 0) {
+        areaPath += ' L' + getX(lastValidIdx).toFixed(1) + ',' + (mt + ph);
+        areaPath += ' L' + getX(firstValidIdx).toFixed(1) + ',' + (mt + ph) + ' Z';
+        svg += '<path d="' + areaPath + '" fill="' + color + '" fill-opacity="0.1"/>';
+      }
+      
+      // Line
+      svg += '<path d="' + pathParts.join(' ') + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+    }
+    
+    // Dots on top
+    svg += dotsSvg;
+    
+    svg += '</svg>';
+    container.innerHTML = svg;
+  }
+
+  // ── Key Points (AI-generated forecast bullets) ─────────────────────────
+  loadKeyPoints() {
     google.script.run
       .withSuccessHandler(function(data) {
-        var container = document.getElementById('alerts-container');
+        var container = document.getElementById('keypoints-container');
 
-        if (data.alerts && data.alerts.length > 0) {
-          container.innerHTML = data.alerts.map(function(alert) {
-            var props = alert.properties;
-            var severity = (props.severity || '').toLowerCase();
-            var isSevere = severity === 'extreme' || severity === 'severe';
-
-            return '<div class="alert-item ' + (isSevere ? 'severe' : '') + '">' +
-              '<div class="alert-title">' + props.event + '</div>' +
-              '<div class="alert-description">' + props.headline + '</div>' +
-              '<div style="font-size:0.8rem;margin-top:0.5rem;color:var(--text-secondary)">' +
-              new Date(props.effective).toLocaleString() + '</div></div>';
-          }).join('');
-        } else {
-          container.innerHTML = '<p class="no-alerts">✅ No active alerts</p>';
+        if (data.error) {
+          console.error('Key points error:', data.error);
+          container.innerHTML = '<div class="error-msg">Unable to generate key points</div>';
+          return;
         }
+
+        var bullets = data.bullets || [];
+        if (bullets.length === 0) {
+          container.innerHTML = '<div class="error-msg">No key points available</div>';
+          return;
+        }
+
+        var html = '<ul class="keypoints-list">';
+        for (var i = 0; i < bullets.length; i++) {
+          html += '<li class="keypoint-item">' + bullets[i] + '</li>';
+        }
+        html += '</ul>';
+        container.innerHTML = html;
       })
       .withFailureHandler(function(err) {
-        console.error('Alerts fetch error:', err);
+        console.error('Key points fetch error:', err);
+        document.getElementById('keypoints-container').innerHTML =
+          '<div class="error-msg">Failed to load key points</div>';
       })
-      .getWeatherAlerts();
+      .getKeyPoints();
   }
 
   // ── Utility ───────────────────────────────────────────────────────────
@@ -843,13 +757,10 @@ class WeatherDashboard {
   startAutoRefresh() {
     var self = this;
 
-    // Weather + forecast + alerts every 5 min
-    setInterval(function() {
-      self.loadCurrentWeather();
-      self.loadHourlyForecast();
-      self.loadWeatherAlerts();
-      self.updateLastUpdateTime();
-    }, 5 * 60 * 1000);
+    // Full page refresh every 1 hour (more reliable than setInterval for long-running dashboards)
+    setTimeout(function() {
+      window.location.reload();
+    }, 60 * 60 * 1000);
 
     // Radar WMS times every 2 min
     setInterval(function() {

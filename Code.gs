@@ -11,7 +11,14 @@ var EVENT_CONFIG = {
   longitude: -121.969814,
   timezone: "America/Los_Angeles",
   startDate: "2026-02-08T15:30:00",
-  endDate: "2026-02-08T22:00:00"
+  endDate: "2026-02-08T22:00:00",
+  
+  // Adverse condition thresholds for timeline highlighting
+  adverseConditions: {
+    maxTemp: 80,        // °F
+    minRainChance: 15,  // %
+    minSkyCover: 50     // %
+  }
 };
 
 var SYNOPTIC_API_KEY = "e0fb17ad65504848934b1f1ece0c78f8";
@@ -37,8 +44,15 @@ var SATELLITE_LOOP_MINUTES = 30;  // how many minutes of satellite to loop
 var CACHE_WEATHER = 300;    // 5 minutes
 var CACHE_RADAR = 120;      // 2 minutes
 var CACHE_SATELLITE = 300;  // 5 minutes
-var CACHE_FORECAST = 900;   // 15 minutes
+var CACHE_FORECAST = 3600;  // 1 hour
 var CACHE_ALERTS = 60;      // 1 minute
+var CACHE_KEYPOINTS = 3600; // 1 hour
+
+// OpenAI API — key stored in Script Properties (set via Apps Script UI or clasp)
+var OPENAI_API_KEY = (function() {
+  try { return PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY') || ''; }
+  catch(e) { return ''; }
+})();
 
 // ── Web App Entry Point ─────────────────────────────────────────────────────
 function doGet() {
@@ -453,7 +467,8 @@ function getGridpointForecast() {
     var result = {
       timestamp: new Date().toISOString(),
       source: 'NWS Gridpoint Forecast (MTR ' + grid.gridX + ',' + grid.gridY + ')',
-      hours: series
+      hours: series,
+      adverseThresholds: EVENT_CONFIG.adverseConditions
     };
 
     cachePut('gridpoint_forecast', result, CACHE_FORECAST);
@@ -501,6 +516,116 @@ function getWeatherAlerts() {
   } catch (e) {
     Logger.log('Error fetching alerts: ' + e.message);
     return { error: 'Unable to fetch alerts', alerts: [], count: 0, timestamp: new Date().toISOString() };
+  }
+}
+
+// ── Key Points (OpenAI summary of gridpoint forecast) ───────────────────────
+// Fetches the gridpoint forecast, sends it to OpenAI, returns bullet points.
+function getKeyPoints() {
+  var cached = cacheGet('key_points');
+  if (cached) return cached;
+
+  try {
+    // Get the gridpoint forecast data first
+    var forecastData = getGridpointForecast();
+    if (forecastData.error || !forecastData.hours || forecastData.hours.length === 0) {
+      return { error: 'No forecast data available for key points', bullets: [], timestamp: new Date().toISOString() };
+    }
+
+    // Build a concise text summary of the hourly data for the prompt
+    var hours = forecastData.hours;
+    var lines = [];
+    for (var i = 0; i < hours.length; i++) {
+      var h = hours[i];
+      var dt = new Date(h.time);
+      var timeLabel = dt.toLocaleString('en-US', {
+        weekday: 'short', hour: 'numeric', hour12: true, timeZone: 'America/Los_Angeles'
+      });
+      lines.push(timeLabel + ': ' +
+        (h.temperature !== null ? h.temperature + '°F' : '--') + ', ' +
+        'Wind ' + (h.windCardinal || '') + ' ' + (h.windSpeed !== null ? Math.round(h.windSpeed) : '--') + ' mph' +
+        (h.windGust ? ' G' + Math.round(h.windGust) : '') + ', ' +
+        'PoP ' + (h.probabilityOfPrecipitation !== null ? h.probabilityOfPrecipitation : '--') + '%, ' +
+        'Sky ' + (h.skyCover !== null ? h.skyCover : '--') + '%' +
+        (h.qpf > 0 ? ', QPF ' + h.qpf.toFixed(2) + '"' : '')
+      );
+    }
+
+    var forecastText = lines.join('\n');
+
+    var systemPrompt = 'You are a concise operational meteorologist briefing staff at a large outdoor sporting event. ' +
+      'The event is ' + EVENT_CONFIG.name + ' at ' + EVENT_CONFIG.location + '. ' +
+      'Kickoff is at ' + EVENT_CONFIG.startDate + ' local time (Pacific). ' +
+      'Given the NWS gridpoint forecast data below, produce exactly 4 short bullet points summarizing the key weather details ' +
+      'an event operations team needs to know at a glance for the next 24 hours. ' +
+      'Focus on: temperature trends, precipitation risk and timing, wind impacts, sky conditions, and any notable changes. ' +
+      'Be specific with numbers. Each bullet should be one short sentence. Do not use markdown formatting. ' +
+      'Return ONLY a JSON array of strings, e.g. ["bullet 1", "bullet 2", "bullet 3"].';
+
+    var userMessage = 'Here is the hourly NWS gridpoint forecast for the next 24 hours:\n\n' + forecastText;
+
+    // Call OpenAI API
+    var apiKey = OPENAI_API_KEY;
+    if (!apiKey) {
+      return { error: 'OpenAI API key not configured', bullets: [], timestamp: new Date().toISOString() };
+    }
+
+    var payload = {
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      temperature: 0.3,
+      max_tokens: 300
+    };
+
+    var response = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'Authorization': 'Bearer ' + apiKey },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+
+    var code = response.getResponseCode();
+    if (code < 200 || code >= 300) {
+      throw new Error('OpenAI API HTTP ' + code + ': ' + response.getContentText().substring(0, 200));
+    }
+
+    var aiData = JSON.parse(response.getContentText());
+    var content = aiData.choices[0].message.content.trim();
+
+    // Parse the JSON array from the response
+    var bullets;
+    try {
+      bullets = JSON.parse(content);
+    } catch (parseErr) {
+      // If OpenAI didn't return clean JSON, try to extract it
+      var jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        bullets = JSON.parse(jsonMatch[0]);
+      } else {
+        // Fall back to splitting by newlines
+        bullets = content.split('\n').filter(function(line) {
+          return line.trim().length > 0;
+        }).map(function(line) {
+          return line.replace(/^[\-\*•]\s*/, '').trim();
+        });
+      }
+    }
+
+    var result = {
+      timestamp: new Date().toISOString(),
+      bullets: bullets,
+      model: aiData.model || 'gpt-4o-mini'
+    };
+
+    cachePut('key_points', result, CACHE_KEYPOINTS);
+    return result;
+  } catch (e) {
+    Logger.log('Error generating key points: ' + e.message);
+    return { error: 'Unable to generate key points: ' + e.message, bullets: [], timestamp: new Date().toISOString() };
   }
 }
 
@@ -635,6 +760,7 @@ function warmCache() {
   getHourlyForecast();
   getGridpointForecast();
   getWeatherAlerts();
+  getKeyPoints();
   getRadarTimes();
   getSatelliteTimes();  // warm default VIS channel
   Logger.log('Cache warmed at ' + new Date().toISOString());

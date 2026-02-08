@@ -73,34 +73,18 @@
               <span id="wind-gust" class="detail-value">--</span>
             </div>
             <div class="detail-item">
-              <span class="label">Altimeter</span>
-              <span id="pressure" class="detail-value">--</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">SLP</span>
-              <span id="slp" class="detail-value">--</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">Visibility</span>
-              <span id="visibility" class="detail-value">--</span>
-            </div>
-            <div class="detail-item">
               <span class="label">1-hr Precip</span>
               <span id="precip-1hr" class="detail-value">--</span>
-            </div>
-            <div class="detail-item detail-item-wide">
-              <span class="label">Clouds</span>
-              <span id="clouds" class="detail-value">--</span>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Weather Alerts (compact) -->
-      <section class="panel weather-alerts">
-        <h2>Alerts</h2>
-        <div id="alerts-container" class="alerts-content">
-          <p class="no-alerts">Loading alerts...</p>
+      <!-- Key Points (AI-generated forecast summary) -->
+      <section class="panel key-points">
+        <h2>Key Points</h2>
+        <div id="keypoints-container" class="keypoints-content">
+          <div class="loading-indicator"><div class="loading-spinner"></div> Analyzing forecast...</div>
         </div>
       </section>
 
@@ -109,21 +93,6 @@
         <h2>Radar</h2>
         <div class="radar-content">
           <div id="radar-map"></div>
-          <div class="loop-controls" id="radar-controls">
-            <div class="loop-buttons">
-              <button class="loop-btn" id="radar-step-back" title="Previous frame">⏮</button>
-              <button class="loop-btn loop-btn-play" id="radar-play" title="Play/Pause">▶</button>
-              <button class="loop-btn" id="radar-step-fwd" title="Next frame">⏭</button>
-              <button class="loop-btn" id="radar-refresh" title="Refresh times">⟳</button>
-            </div>
-            <div class="loop-progress">
-              <input type="range" id="radar-scrubber" class="frame-scrubber" min="0" max="0" value="0" />
-            </div>
-            <div class="loop-info">
-              <span id="radar-frame-counter" class="frame-counter">0 / 0</span>
-              <span id="radar-timestamp" class="timestamp"></span>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -132,26 +101,11 @@
         <h2>Satellite</h2>
         <div class="satellite-content">
           <div class="satellite-channel-selector">
-            <button class="channel-btn" data-channel="G18-ABI-CONUS-BAND02" title="Visible (0.64µm)">VIS</button>
+            <button class="channel-btn active" data-channel="G18-ABI-CONUS-BAND02" title="Visible (0.64µm)">VIS</button>
             <button class="channel-btn" data-channel="G18-ABI-CONUS-BAND09" title="Water Vapor (6.9µm)">WV</button>
-            <button class="channel-btn active" data-channel="G18-ABI-CONUS-BAND13" title="Clean IR (10.3µm)">IR</button>
+            <button class="channel-btn" data-channel="G18-ABI-CONUS-BAND13" title="Clean IR (10.3µm)">IR</button>
           </div>
           <div id="satellite-map"></div>
-          <div class="loop-controls" id="satellite-controls">
-            <div class="loop-buttons">
-              <button class="loop-btn" id="satellite-step-back" title="Previous frame">⏮</button>
-              <button class="loop-btn loop-btn-play" id="satellite-play" title="Play/Pause">▶</button>
-              <button class="loop-btn" id="satellite-step-fwd" title="Next frame">⏭</button>
-              <button class="loop-btn" id="satellite-refresh" title="Refresh times">⟳</button>
-            </div>
-            <div class="loop-progress">
-              <input type="range" id="satellite-scrubber" class="frame-scrubber" min="0" max="0" value="0" />
-            </div>
-            <div class="loop-info">
-              <span id="satellite-frame-counter" class="frame-counter">0 / 0</span>
-              <span id="satellite-timestamp" class="timestamp">Loading...</span>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -160,14 +114,6 @@
         <h2>Hourly Forecast — Next 24h</h2>
         <div id="hourly-container" class="hourly-content">
           <div class="loading-indicator"><div class="loading-spinner"></div> Loading gridpoint data...</div>
-        </div>
-      </section>
-
-      <!-- Forecast Summary -->
-      <section class="panel additional-data">
-        <h2>Forecast Summary</h2>
-        <div id="forecast-summary" class="summary-content">
-          <div class="loading-indicator"><div class="loading-spinner"></div> Loading...</div>
         </div>
       </section>
 
