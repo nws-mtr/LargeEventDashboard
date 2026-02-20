@@ -1,3 +1,58 @@
+// Config Modal Logic
+function getStoredConfig() {
+  try {
+    return JSON.parse(localStorage.getItem("dashboardConfig"));
+  } catch { return null; }
+}
+
+function setStoredConfig(cfg) {
+  localStorage.setItem("dashboardConfig", JSON.stringify(cfg));
+}
+
+function showConfigModal(config) {
+  document.getElementById("config-modal").style.display = "flex";
+  document.getElementById("config-event-name").value = config?.name || "";
+  document.getElementById("config-latitude").value = config?.latitude || "";
+  document.getElementById("config-longitude").value = config?.longitude || "";
+}
+
+function hideConfigModal() {
+  document.getElementById("config-modal").style.display = "none";
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  const dashboard = new WeatherDashboard();
+
+  // Config button logic
+  const configBtn = document.getElementById("config-btn");
+  const configModal = document.getElementById("config-modal");
+  const configForm = document.getElementById("config-form");
+  const configCancel = document.getElementById("config-cancel-btn");
+
+  configBtn.addEventListener("click", function() {
+    // Use stored config or dashboard config
+    const stored = getStoredConfig();
+    showConfigModal(stored || dashboard.config || {});
+  });
+
+  configCancel.addEventListener("click", function() {
+    hideConfigModal();
+  });
+
+  configForm.addEventListener("submit", function(e) {
+    e.preventDefault();
+    const newConfig = {
+      ...dashboard.config,
+      name: document.getElementById("config-event-name").value.trim(),
+      latitude: parseFloat(document.getElementById("config-latitude").value),
+      longitude: parseFloat(document.getElementById("config-longitude").value)
+    };
+    setStoredConfig(newConfig);
+    hideConfigModal();
+    // Reload to apply config
+    window.location.reload();
+  });
+});
 // ============================================================================
 // app.js — Client-side Dashboard Logic (local dev)
 // ============================================================================
@@ -5,6 +60,7 @@
 class WeatherDashboard {
   constructor() {
     this.config = null;
+    this.displayTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
     this.radarMap = null;
     this.activeRadarLayer = null;
     this.radarCounties = null;
@@ -31,34 +87,159 @@ class WeatherDashboard {
       .then((config) => {
         this.config = config;
         this.updateEventInfo();
+        // apply venue location to maps once config is loaded
+        if (this.config && typeof this.config.latitude === 'number' && typeof this.config.longitude === 'number') {
+          this.applyVenueLocation(this.config.latitude, this.config.longitude);
+        }
+        // set display timezone from config or derive from longitude
+          try {
+            let storedCfg = null;
+            try { storedCfg = JSON.parse(localStorage.getItem('dashboardConfig')); } catch (e) { storedCfg = null; }
+            if (storedCfg && storedCfg.timezone) {
+              this.displayTimezone = storedCfg.timezone;
+            } else {
+              this.displayTimezone = this.chooseTimezone(this.config.longitude);
+            }
+            // Update timezone label in UI to reflect derived/stored timezone
+            try {
+              const tzEl = document.getElementById('timezone');
+              if (tzEl) tzEl.textContent = this.getTimezoneDisplayName(this.displayTimezone || this.config.timezone);
+            } catch (e) { /* ignore */ }
+          } catch (e) { /* ignore */ }
+        // choose appropriate GOES satellite (G18 vs G19) based on longitude
+        try {
+          const prefix = this.chooseSatellitePrefix(this.config.longitude);
+          const bandSuffix = (this.satelliteChannel && this.satelliteChannel.includes('-BAND')) ? this.satelliteChannel.substring(this.satelliteChannel.indexOf('-BAND')) : '-BAND02';
+          this.satelliteChannel = prefix + bandSuffix;
+          // update channel buttons' data-channel attributes to match selected prefix
+          const channelBtns = document.querySelectorAll('.channel-btn');
+          channelBtns.forEach((btn) => {
+            const ch = btn.getAttribute('data-channel');
+            if (ch) {
+              const newCh = ch.replace(/G1[89]-ABI-CONUS/, prefix);
+              btn.setAttribute('data-channel', newCh);
+            }
+          });
+          // reload satellite frame for the chosen satellite
+          if (this.satelliteMap) this.loadLatestSatelliteFrame();
+        } catch (e) {
+          console.warn('Satellite selection error:', e);
+        }
       })
       .catch((err) => {
         console.error("Config error:", err);
       });
   }
 
+  chooseSatellitePrefix(longitude) {
+    // Simple longitude-based split: western US -> GOES-18, central/eastern -> GOES-19
+    // Use -105°W as a practical dividing line (longitudes are negative in western hemisphere)
+    if (typeof longitude !== 'number' || isNaN(longitude)) return 'G18-ABI-CONUS';
+    return (longitude >= -105) ? 'G19-ABI-CONUS' : 'G18-ABI-CONUS';
+  }
+
   updateEventInfo() {
     if (!this.config) return;
-    document.getElementById("event-location").textContent = this.config.location;
-
+    // Event Name
+    document.getElementById("event-name").textContent = this.config.name ? this.config.name + " Weather" : "Event Weather";
+    // Location
+    document.getElementById("event-location").textContent = this.config.location || (this.config.latitude && this.config.longitude ? `${this.config.latitude}, ${this.config.longitude}` : "");
+    // Date
     const startDate = new Date(this.config.startDate);
     document.getElementById("event-date").textContent = startDate.toLocaleDateString("en-US", {
       weekday: "long", year: "numeric", month: "long", day: "numeric"
     });
+    // Timezone
+    document.getElementById("timezone").textContent = this.getTimezoneDisplayName(this.displayTimezone || this.config.timezone);
+  }
 
-    document.getElementById("timezone").textContent = this.config.timezone;
+  getTimezoneDisplayName(tz) {
+    if (!tz) return "";
+    try {
+      // Prefer the short name (e.g., CST/CDT/PDT). Intl may sometimes return GMT offsets
+      const partsShort = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date());
+      const shortPart = partsShort.find(p => p.type === 'timeZoneName');
+      if (shortPart && shortPart.value) {
+        // If Intl returns a GMT/UTC offset like "GMT-8", fall back to a simple mapping
+        if (!/GMT|UTC/.test(shortPart.value)) return shortPart.value;
+      }
+
+      // Fallback: try long name then map common US timezones to short codes
+      const partsLong = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'long' }).formatToParts(new Date());
+      const longPart = partsLong.find(p => p.type === 'timeZoneName');
+      const longName = (longPart && longPart.value) ? longPart.value : null;
+
+      const mapping = {
+        'America/Los_Angeles': 'PST',
+        'America/Denver': 'MST',
+        'America/Chicago': 'CST',
+        'America/New_York': 'EST'
+      };
+
+      if (mapping[tz]) return mapping[tz];
+      if (longName) return longName;
+      return tz;
+    } catch (e) {
+      return tz;
+    }
+  }
+
+  applyVenueLocation(lat, lon) {
+    const latlng = [lat, lon];
+    // Radar map
+    if (this.radarMap) {
+      if (this.venueMarkerRadar) {
+        this.venueMarkerRadar.setLatLng(latlng);
+      } else {
+        const venueIcon = L.divIcon({ className: "venue-marker", iconSize: [12,12], iconAnchor: [6,6] });
+        this.venueMarkerRadar = L.marker(latlng, { icon: venueIcon, zIndex: 1000 }).addTo(this.radarMap);
+      }
+      if (this.venueCircleRadar) {
+        this.venueCircleRadar.setLatLng(latlng);
+      } else {
+        this.venueCircleRadar = L.circle(latlng, { radius: 18520, color: "rgba(255,255,255,0.4)", weight:1, dashArray: "6,4", fill:false }).addTo(this.radarMap);
+      }
+      try { this.radarMap.setView(latlng, this.radarMap.getZoom()); } catch(e){}
+    }
+
+    // Satellite map
+    if (this.satelliteMap) {
+      if (this.venueMarkerSat) {
+        this.venueMarkerSat.setLatLng(latlng);
+      } else {
+        const venueIcon2 = L.divIcon({ className: "venue-marker", iconSize: [12,12], iconAnchor: [6,6] });
+        this.venueMarkerSat = L.marker(latlng, { icon: venueIcon2, zIndex: 1000 }).addTo(this.satelliteMap);
+      }
+      if (this.venueCircleSat) {
+        this.venueCircleSat.setLatLng(latlng);
+      } else {
+        this.venueCircleSat = L.circle(latlng, { radius: 92600, color: "rgba(255,255,255,0.25)", weight:1, dashArray: "6,4", fill:false }).addTo(this.satelliteMap);
+      }
+      try { this.satelliteMap.setView(latlng, this.satelliteMap.getZoom()); } catch(e){}
+    }
   }
 
   setupClock() {
-    const updateClock = function() {
+    const updateClock = () => {
       const now = new Date();
       document.getElementById("clock").textContent = now.toLocaleTimeString("en-US", {
         hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-        timeZone: "America/Los_Angeles"
+        timeZone: this.displayTimezone || "America/Los_Angeles"
       });
     };
     updateClock();
     setInterval(updateClock, 1000);
+  }
+
+  chooseTimezone(longitude) {
+    // Approximate US timezones by longitude.
+    // Boundaries (degrees east):
+    // >= -87.5 : Eastern, >= -101.5 : Central, >= -115 : Mountain, else Pacific
+    if (typeof longitude !== 'number' || isNaN(longitude)) return 'America/Los_Angeles';
+    if (longitude >= -87.5) return 'America/New_York';
+    if (longitude >= -101.5) return 'America/Chicago';
+    if (longitude >= -115) return 'America/Denver';
+    return 'America/Los_Angeles';
   }
 
   loadAllData() {
@@ -86,22 +267,7 @@ class WeatherDashboard {
       maxZoom: 19
     }).addTo(this.radarMap);
 
-    const venueIcon = L.divIcon({
-      className: "venue-marker",
-      iconSize: [12, 12],
-      iconAnchor: [6, 6]
-    });
-    L.marker(venueLatLng, { icon: venueIcon, zIndex: 1000 })
-      .addTo(this.radarMap)
-      .bindPopup("<b>Levi's Stadium</b><br>Super Bowl LX");
-
-    L.circle(venueLatLng, {
-      radius: 18520,
-      color: "rgba(255,255,255,0.4)",
-      weight: 1,
-      dashArray: "6,4",
-      fill: false
-    }).addTo(this.radarMap);
+    // Venue marker and circle will be applied when config is loaded
 
     this.radarCounties = L.tileLayer.wms("https://tigerweb.geo.census.gov/arcgis/services/TIGERweb/tigerWMS_Current/MapServer/WMSServer", {
       layers: "84",
@@ -189,22 +355,7 @@ class WeatherDashboard {
       maxZoom: 12
     }).addTo(this.satelliteMap);
 
-    const venueIcon = L.divIcon({
-      className: "venue-marker",
-      iconSize: [12, 12],
-      iconAnchor: [6, 6]
-    });
-    L.marker(venueLatLng, { icon: venueIcon, zIndex: 1000 })
-      .addTo(this.satelliteMap)
-      .bindPopup("<b>Levi's Stadium</b><br>Super Bowl LX");
-
-    L.circle(venueLatLng, {
-      radius: 92600,
-      color: "rgba(255,255,255,0.25)",
-      weight: 1,
-      dashArray: "6,4",
-      fill: false
-    }).addTo(this.satelliteMap);
+    // Venue marker and circle will be applied when config is loaded
 
     this.satLabelsLayer = L.tileLayer(
       "https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", {

@@ -1,17 +1,18 @@
-const EVENT_CONFIG = {
-  name: "Super Bowl LX",
-  location: "Levi's Stadium",
-  latitude: 37.403147,
-  longitude: -121.969814,
-  timezone: "America/Los_Angeles",
-  startDate: "2026-02-08T15:30:00",
-  endDate: "2026-02-08T22:00:00",
-  adverseConditions: {
-    maxTemp: 80,
-    minRainChance: 15,
-    minSkyCover: 50
-  }
-};
+function getDefaultEventConfig() {
+  return {
+    name: "Super Bowl LX",
+    location: "Levi's Stadium",
+    latitude: 37.403147,
+    longitude: -121.969814,
+    startDate: "2026-02-08T15:30:00",
+    endDate: "2026-02-08T22:00:00",
+    adverseConditions: {
+      maxTemp: 80,
+      minRainChance: 15,
+      minSkyCover: 50
+    }
+  };
+}
 
 const SYNOPTIC_API_KEY = "e0fb17ad65504848934b1f1ece0c78f8";
 const NEAREST_STATION = "462PG";
@@ -97,13 +98,12 @@ function round2(v) { return v !== null && v !== undefined ? Math.round(v * 100) 
 async function getNWSGridPoint_() {
   const cached = cacheGet("nws_gridpoint");
   if (cached) return cached;
-
-  const lat = EVENT_CONFIG.latitude;
-  const lon = EVENT_CONFIG.longitude;
+  const config = await getConfig();
+  const lat = config.latitude;
+  const lon = config.longitude;
   const points = await fetchJSON(`https://api.weather.gov/points/${lat},${lon}`, {
     headers: { "Accept": "application/geo+json" }
   });
-
   const result = {
     forecastHourly: points.properties.forecastHourly,
     forecast: points.properties.forecast,
@@ -112,13 +112,31 @@ async function getNWSGridPoint_() {
     gridX: points.properties.gridX,
     gridY: points.properties.gridY
   };
-
   cachePut("nws_gridpoint", result, 3600);
   return result;
 }
 
 function getConfig() {
-  return Promise.resolve(EVENT_CONFIG);
+  // Merge stored config with defaults
+  let stored = null;
+  try {
+    stored = JSON.parse(localStorage.getItem("dashboardConfig"));
+  } catch {}
+  const def = getDefaultEventConfig();
+  if (stored) {
+    // Allow name, lat, lon to override
+    if (stored.name) def.name = stored.name;
+    if (stored.latitude) def.latitude = stored.latitude;
+    if (stored.longitude) def.longitude = stored.longitude;
+  }
+  // Only keep timezone if explicitly provided in stored config; otherwise
+  // remove default timezone so the app can derive it from longitude.
+  if (stored && stored.timezone) {
+    def.timezone = stored.timezone;
+  } else {
+    delete def.timezone;
+  }
+  return Promise.resolve(def);
 }
 
 async function getCurrentWeather() {
@@ -137,9 +155,9 @@ async function getCurrentWeather() {
 }
 
 async function fetchSynopticWeather_() {
-  const lat = EVENT_CONFIG.latitude;
-  const lon = EVENT_CONFIG.longitude;
-
+  const config = await getConfig();
+  const lat = config.latitude;
+  const lon = config.longitude;
   const url = "https://api.synopticdata.com/v2/stations/nearesttime"
     + `?token=${SYNOPTIC_API_KEY}`
     + `&radius=${lat},${lon},50`
@@ -148,16 +166,12 @@ async function fetchSynopticWeather_() {
     + "&vars=air_temp,dew_point_temperature,relative_humidity,wind_speed,wind_direction,wind_gust,visibility,cloud_layer_1_code,cloud_layer_2_code,cloud_layer_3_code,precip_accum_one_hour,sea_level_pressure,altimeter"
     + "&obtimezone=UTC"
     + "&output=json";
-
   const data = await fetchJSON(url);
-
   if (!data.STATION || data.STATION.length === 0) {
     throw new Error("No stations found near location");
   }
-
   const station = data.STATION[0];
   const obs = station.OBSERVATIONS;
-
   function getVal() {
     for (let i = 0; i < arguments.length; i++) {
       const field = arguments[i];
@@ -165,7 +179,6 @@ async function fetchSynopticWeather_() {
     }
     return null;
   }
-
   function getTimestamp() {
     for (let i = 0; i < arguments.length; i++) {
       const field = arguments[i];
@@ -173,7 +186,6 @@ async function fetchSynopticWeather_() {
     }
     return null;
   }
-
   const tempC = getVal("air_temp_value_1", "air_temp_set_1");
   const dewpointC = getVal("dew_point_temperature_value_1d", "dew_point_temperature_set_1d");
   const windSpeedMs = getVal("wind_speed_value_1", "wind_speed_set_1");
@@ -184,11 +196,9 @@ async function fetchSynopticWeather_() {
   const visib = getVal("visibility_value_1", "visibility_set_1");
   const rh = getVal("relative_humidity_value_1", "relative_humidity_set_1");
   const slp = getVal("sea_level_pressure_value_1d", "sea_level_pressure_set_1d");
-
   const cloud1 = getVal("cloud_layer_1_code_value_1", "cloud_layer_1_code_set_1");
   const cloud2 = getVal("cloud_layer_2_code_value_1", "cloud_layer_2_code_set_1");
   const cloud3 = getVal("cloud_layer_3_code_value_1", "cloud_layer_3_code_set_1");
-
   function parseCloudLayer(raw) {
     if (!raw) return null;
     const str = String(raw);
@@ -200,10 +210,8 @@ async function fetchSynopticWeather_() {
     const name = names[cover] || cover;
     return ht ? `${name} @ ${ht.toLocaleString()} ft` : name;
   }
-
   const cloudLayers = [parseCloudLayer(cloud1), parseCloudLayer(cloud2), parseCloudLayer(cloud3)]
     .filter((c) => c !== null);
-
   const result = {
     timestamp: new Date().toISOString(),
     observationTime: getTimestamp("air_temp_value_1", "air_temp_set_1"),
@@ -233,9 +241,8 @@ async function fetchSynopticWeather_() {
       precipitation: { oneHour: { value: round2(mmToInches(precipMm)), unit: "inches" } },
       clouds: cloudLayers
     },
-    location: EVENT_CONFIG
+    location: config
   };
-
   cachePut("weather_current", result, CACHE_WEATHER);
   return result;
 }
@@ -298,7 +305,7 @@ async function fetchNOAAWeather_() {
       precipitation: { oneHour: { value: null, unit: "inches" } },
       clouds: nwsClouds
     },
-    location: EVENT_CONFIG
+    location: config
   };
 
   cachePut("weather_current", result, CACHE_WEATHER);
@@ -308,6 +315,7 @@ async function fetchNOAAWeather_() {
 async function getGridpointForecast() {
   const cached = cacheGet("gridpoint_forecast");
   if (cached) return cached;
+  const config = await getConfig();
 
   try {
     const grid = await getNWSGridPoint_();
@@ -383,7 +391,7 @@ async function getGridpointForecast() {
       timestamp: new Date().toISOString(),
       source: `NWS Gridpoint Forecast (MTR ${grid.gridX},${grid.gridY})`,
       hours: series,
-      adverseThresholds: EVENT_CONFIG.adverseConditions
+      adverseThresholds: config.adverseConditions
     };
 
     cachePut("gridpoint_forecast", result, CACHE_FORECAST);
@@ -493,95 +501,5 @@ async function getSatelliteTimes(channel) {
 }
 
 async function getKeyPoints() {
-  const cached = cacheGet("key_points");
-  if (cached) return cached;
-
-  try {
-    const forecastData = await getGridpointForecast();
-    if (forecastData.error || !forecastData.hours || forecastData.hours.length === 0) {
-      return { error: "No forecast data available for key points", bullets: [], timestamp: new Date().toISOString() };
-    }
-
-    if (!OPENAI_API_KEY) {
-      return { error: "OpenAI API key not configured", bullets: [], timestamp: new Date().toISOString() };
-    }
-
-    const hours = forecastData.hours;
-    const lines = [];
-    for (let i = 0; i < hours.length; i++) {
-      const h = hours[i];
-      const dt = new Date(h.time);
-      const timeLabel = dt.toLocaleString("en-US", {
-        weekday: "short", hour: "numeric", hour12: true, timeZone: "America/Los_Angeles"
-      });
-      lines.push(
-        `${timeLabel}: ${h.temperature !== null ? h.temperature + "F" : "--"}, ` +
-        `Wind ${h.windCardinal || ""} ${h.windSpeed !== null ? Math.round(h.windSpeed) : "--"} mph` +
-        `${h.windGust ? " G" + Math.round(h.windGust) : ""}, ` +
-        `PoP ${h.probabilityOfPrecipitation !== null ? h.probabilityOfPrecipitation : "--"}%, ` +
-        `Sky ${h.skyCover !== null ? h.skyCover : "--"}%` +
-        `${h.qpf > 0 ? `, QPF ${h.qpf.toFixed(2)}\"` : ""}`
-      );
-    }
-
-    const forecastText = lines.join("\n");
-    const systemPrompt = "You are a concise operational meteorologist briefing staff at a large outdoor sporting event. " +
-      `The event is ${EVENT_CONFIG.name} at ${EVENT_CONFIG.location}. ` +
-      `Kickoff is at ${EVENT_CONFIG.startDate} local time (Pacific). ` +
-      "Given the NWS gridpoint forecast data below, produce exactly 4 short bullet points summarizing the key weather details " +
-      "an event operations team needs to know at a glance for the next 24 hours. " +
-      "Focus on: temperature trends, precipitation risk and timing, wind impacts, sky conditions, and any notable changes. " +
-      "Be specific with numbers. Each bullet should be one short sentence. Do not use markdown formatting. " +
-      "Return ONLY a JSON array of strings, e.g. [\"bullet 1\", \"bullet 2\", \"bullet 3\"].";
-
-    const payload = {
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `Here is the hourly NWS gridpoint forecast for the next 24 hours:\n\n${forecastText}` }
-      ],
-      temperature: 0.3,
-      max_tokens: 300
-    };
-
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI API HTTP ${response.status}`);
-    }
-
-    const aiData = await response.json();
-    const content = aiData.choices[0].message.content.trim();
-
-    let bullets;
-    try {
-      bullets = JSON.parse(content);
-    } catch (parseErr) {
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        bullets = JSON.parse(jsonMatch[0]);
-      } else {
-        bullets = content.split("\n").filter((line) => line.trim().length > 0)
-          .map((line) => line.replace(/^[\-\*\u2022]\s*/, "").trim());
-      }
-    }
-
-    const result = {
-      timestamp: new Date().toISOString(),
-      bullets,
-      model: aiData.model || "gpt-4o-mini"
-    };
-
-    cachePut("key_points", result, CACHE_KEYPOINTS);
-    return result;
-  } catch (err) {
     return { error: `Unable to generate key points: ${err.message}`, bullets: [], timestamp: new Date().toISOString() };
-  }
 }
