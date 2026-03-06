@@ -20,7 +20,7 @@ Real-time weather dashboard for **Super Bowl LX** at **Levi's Stadium** (Santa C
 │  Google Apps Script Web App                       │
 │                                                   │
 │  Code.gs          ─ Server-side functions         │
-│  Index.html       ─ Dashboard HTML + Leaflet CDN  │
+│  index.html       ─ Dashboard HTML + Leaflet CDN  │
 │  Stylesheet.html  ─ CSS (dark theme)              │
 │  JavaScript.html  ─ Client JS, LoopPlayer,        │
 │                     Leaflet WMS radar + satellite  │
@@ -71,7 +71,7 @@ The satellite panel uses the same **Leaflet WMS** pattern as radar, powered by t
 1. Go to [script.google.com](https://script.google.com) and create a new project
 2. Create the following files and paste in their contents:
    - `Code.gs` (replace default `Code.gs`)
-   - `Index.html` (File → New → HTML file → name it `Index`)
+   - `index.html` (File → New → HTML file → name it `Index`)
    - `Stylesheet.html` (File → New → HTML file → name it `Stylesheet`)
    - `JavaScript.html` (File → New → HTML file → name it `JavaScript`)
 3. Replace the contents of `appsscript.json` (View → Show manifest file)
@@ -160,7 +160,7 @@ var SYNOPTIC_API_KEY = PropertiesService.getScriptProperties().getProperty('SYNO
 LargeEventDashboard/
 ├── appsscript.json      # GAS manifest (timezone, runtime, webapp config)
 ├── Code.gs              # Server-side: API calls, WMS time parsing, caching
-├── Index.html           # Dashboard HTML template + Leaflet CDN
+├── index.html           # Dashboard HTML template + Leaflet CDN
 ├── Stylesheet.html      # CSS (dark theme, 4×3 grid, Leaflet overrides)
 ├── JavaScript.html      # Client JS: LoopPlayer, Leaflet WMS radar, satellite
 ├── .clasp.json          # clasp CLI config (script ID)
