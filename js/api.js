@@ -301,7 +301,6 @@ async function getGridpointForecast() {
       timestamp:        new Date().toISOString(),
       source:           `NWS Gridpoint Forecast (${grid.gridId} ${grid.gridX},${grid.gridY})`,
       hours:            series,
-      adverseThresholds: config.adverseConditions
     };
     cachePut("gridpoint_forecast", result, CACHE_FORECAST);
     return result;
@@ -394,78 +393,92 @@ async function getSatelliteTimes(channel) {
   }
 }
 
-// ── Key Points (OpenAI) ──────────────────────────────────────────────────────
+// ── Wind Rose Data (Synoptic Time Series) ────────────────────────────────────
 
-async function getKeyPoints() {
-  const cached = cacheGet("key_points");
+const WIND_ROSE_DIRECTIONS = [
+  "N","NNE","NE","ENE","E","ESE","SE","SSE",
+  "S","SSW","SW","WSW","W","WNW","NW","NNW"
+];
+
+const WIND_SPEED_BINS = [
+  { min: 0,  max: 5,      label: "0-5",  color: "#90caf9" },
+  { min: 5,  max: 10,     label: "5-10", color: "#66bb6a" },
+  { min: 10, max: 15,     label: "10-15",color: "#fdd835" },
+  { min: 15, max: 20,     label: "15-20",color: "#ff9800" },
+  { min: 20, max: Infinity,label: "20+", color: "#f44336" }
+];
+
+async function fetchSynopticTimeSeries_(stationId) {
+  const config = await getConfig();
+  const end   = new Date();
+  const start = new Date(end.getTime() - 60 * 60 * 1000); // 1 hour ago
+
+  const fmt = (d) => d.toISOString().replace(/[-:T]/g, "").substring(0, 12);
+
+  // Use specific station if provided, otherwise radius search
+  const stationParam = stationId
+    ? `&stid=${stationId}`
+    : `&radius=${config.latitude},${config.longitude},50&limit=1`;
+
+  const url = "https://api.synopticdata.com/v2/stations/timeseries"
+    + `?token=${SYNOPTIC_API_KEY}`
+    + stationParam
+    + `&start=${fmt(start)}&end=${fmt(end)}`
+    + "&vars=wind_speed,wind_direction"
+    + "&obtimezone=UTC&units=english&output=json";
+
+  const data = await fetchJSON(url);
+  if (!data.STATION || data.STATION.length === 0) {
+    throw new Error("No stations found near location");
+  }
+  return data.STATION[0];
+}
+
+async function getWindRoseData(stationId) {
+  const cacheKey = stationId ? `windrose_data_${stationId}` : "windrose_data";
+  const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
-  const apiKey = localStorage.getItem("OPENAI_API_KEY") || OPENAI_API_KEY;
-  if (!apiKey) {
-    return {
-      error: "OpenAI API key not configured. Open settings to add your OPENAI_API_KEY.",
-      bullets: [],
-      timestamp: new Date().toISOString()
-    };
-  }
-
   try {
-    const [config, forecast, weather] = await Promise.all([
-      getConfig(),
-      getGridpointForecast(),
-      getCurrentWeather()
-    ]);
+    const station = await fetchSynopticTimeSeries_(stationId);
+    const obs     = station.OBSERVATIONS;
 
-    const forecastSummary = (forecast.hours || []).slice(0, 24).map((h) => {
-      const timeStr = new Date(h.time).toLocaleTimeString("en-US", {
-        hour: "numeric", hour12: true, timeZone: "America/Los_Angeles"
-      });
-      return `${timeStr}: ${h.temperature}°F, Rain ${h.probabilityOfPrecipitation}%, Sky ${h.skyCover}%, Wind ${h.windSpeed}mph ${h.windCardinal}`;
-    }).join("\n");
+    const speeds     = obs.wind_speed_set_1     || [];
+    const directions = obs.wind_direction_set_1  || [];
+    const count      = Math.min(speeds.length, directions.length);
 
-    const obs = weather.observations;
-    const obsStr = obs
-      ? `${obs.temperature?.value}°F, Wind ${obs.wind?.speed?.value}mph ${obs.wind?.cardinal}, RH ${obs.relativeHumidity?.value}%`
-      : "No current observations";
+    // Initialize 16 direction bins, each with speed-range counts
+    const bins = WIND_ROSE_DIRECTIONS.map((label) => ({
+      label,
+      speedCounts: WIND_SPEED_BINS.map(() => 0)
+    }));
 
-    const prompt = `You are a meteorologist briefing event operations staff for ${config.name} at ${config.location || "the venue"} starting ${config.startDate}.
+    let totalObs = 0;
+    for (let i = 0; i < count; i++) {
+      const spd = speeds[i];
+      const dir = directions[i];
+      if (spd === null || dir === null) continue;
 
-Current conditions: ${obsStr}
-
-24-hour forecast:
-${forecastSummary}
-
-Provide exactly 4-5 concise bullet points for event staff. Focus on: any weather hazards and timing, temperature impacts, wind, and overall event-day outlook. Be specific with times and values. Each bullet is 1-2 sentences max.`;
-
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 400,
-        temperature: 0.3
-      })
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`OpenAI API ${response.status}: ${errText}`);
+      // Map direction (0-360) to one of 16 bins
+      const binIdx = Math.round(dir / 22.5) % 16;
+      // Map speed to speed-range bucket
+      const spdIdx = WIND_SPEED_BINS.findIndex((b) => spd >= b.min && spd < b.max);
+      if (spdIdx >= 0) {
+        bins[binIdx].speedCounts[spdIdx]++;
+        totalObs++;
+      }
     }
 
-    const data    = await response.json();
-    const text    = data.choices?.[0]?.message?.content || "";
-    const bullets = text.split("\n")
-      .map((line) => line.replace(/^[-•*\d.]+\s*/, "").trim())
-      .filter((line) => line.length > 10);
-
-    const result = { bullets, timestamp: new Date().toISOString(), source: "OpenAI gpt-4o-mini" };
-    cachePut("key_points", result, CACHE_KEYPOINTS);
+    const result = {
+      bins,
+      totalObs,
+      stationName: station.NAME || station.STID || "Unknown",
+      stationId:   station.STID || "",
+      timestamp:   new Date().toISOString()
+    };
+    cachePut(cacheKey, result, CACHE_WINDROSE);
     return result;
   } catch (err) {
-    return { error: `Unable to generate key points: ${err.message}`, bullets: [], timestamp: new Date().toISOString() };
+    return { error: `Unable to fetch wind data: ${err.message}`, bins: [], totalObs: 0, timestamp: new Date().toISOString() };
   }
 }

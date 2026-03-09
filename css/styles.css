@@ -1,21 +1,16 @@
 /* ── Config Button & Modal ─────────────────────────────────────────────── */
-.config-btn {
-  position: fixed;
-  right: 2.2rem;
-  bottom: 2.2rem;
-  z-index: 1001;
-  background: var(--bg-panel);
+.config-btn-footer {
+  background: transparent;
   color: var(--accent-blue);
   border: 1px solid var(--border-color);
-  border-radius: 50px;
-  padding: 0.7rem 1.4rem;
-  font-size: 1.1rem;
+  border-radius: 6px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.85rem;
   font-weight: 600;
-  box-shadow: 0 2px 8px var(--shadow);
   cursor: pointer;
   transition: background 0.2s, color 0.2s;
 }
-.config-btn:hover {
+.config-btn-footer:hover {
   background: var(--accent-blue);
   color: #fff;
 }
@@ -35,8 +30,10 @@
   border-radius: 12px;
   box-shadow: 0 4px 32px var(--shadow);
   padding: 2.2rem 2.5rem 1.5rem 2.5rem;
-  min-width: 320px;
+  min-width: 380px;
   max-width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
@@ -225,7 +222,7 @@ body {
 
 /* Grid placement */
 .current-conditions { grid-column: 1 / 2; grid-row: 1 / 3; }
-.key-points         { grid-column: 1 / 2; grid-row: 3 / 5; }
+.wind-rose           { grid-column: 1 / 2; grid-row: 3 / 5; }
 .hourly-forecast    { grid-column: 2 / 3; grid-row: 1 / 5; }
 .radar-display      { grid-column: 3 / 4; grid-row: 1 / 3; }
 .satellite-display  { grid-column: 3 / 4; grid-row: 3 / 5; }
@@ -320,41 +317,19 @@ body {
   grid-column: 1 / -1;
 }
 
-/* ── Key Points (AI forecast summary) ─────────────────────────────────────── */
-.key-points {
-  border: 3px solid var(--accent-yellow);
-  box-shadow: 0 0 12px rgba(255, 193, 7, 0.3);
-}
-
-.key-points h2 { margin-bottom: 0.5rem; font-size: 1rem; }
-
-.keypoints-content { overflow-y: auto; flex: 1; }
-
-.keypoints-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+/* ── Wind Rose ────────────────────────────────────────────────────────────── */
+.windrose-content {
+  flex: 1;
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-height: 0;
 }
 
-.keypoint-item {
-  padding: 0.5rem 0.7rem;
-  background: var(--bg-secondary);
-  border-left: 3px solid var(--accent-blue);
-  border-radius: 4px;
-  font-size: 0.85rem;
-  line-height: 1.4;
-  color: var(--text-primary);
-}
-
-.keypoints-source {
-  margin-top: 0.5rem;
-  font-size: 0.6rem;
-  color: var(--text-secondary);
-  text-align: center;
-  opacity: 0.7;
+.windrose-content svg {
+  max-width: 100%;
+  max-height: 100%;
 }
 
 /* ── Radar & Satellite ───────────────────────────────────────────────────── */
@@ -444,40 +419,6 @@ body {
 .leaflet-tile-pane img[src*="tigerweb.geo.census.gov"] {
   filter: invert(1) brightness(1.5);
   mix-blend-mode: lighten;
-}
-
-/* Channel selector */
-.satellite-channel-selector {
-  display: flex;
-  gap: 0.3rem;
-  flex-shrink: 0;
-}
-
-.channel-btn {
-  flex: 1;
-  padding: 0.35rem 0.5rem;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.channel-btn:hover {
-  background: rgba(33, 150, 243, 0.15);
-  border-color: var(--accent-blue);
-  color: var(--text-primary);
-}
-
-.channel-btn.active {
-  background: var(--accent-blue);
-  color: white;
-  border-color: var(--accent-blue);
 }
 
 .loading-indicator {
@@ -704,6 +645,113 @@ thead .ft-sticky-col {
   border: 1px solid var(--border-color);
   font-size: 0.85rem;
   color: var(--text-secondary);
+}
+
+/* ── Chart Tooltip ────────────────────────────────────────────────────────── */
+.chart-tooltip {
+  position: absolute;
+  background: rgba(26, 31, 58, 0.95);
+  color: var(--text-primary);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 10;
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
+  display: none;
+}
+
+/* ── Config Modal Additions ──────────────────────────────────────────────── */
+.config-section-header {
+  margin-top: 1rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--accent-blue);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.config-modal-content select {
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  margin-top: 0.2rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 1rem;
+  margin-bottom: 0.2rem;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.config-modal-content input[type="datetime-local"] {
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  margin-top: 0.2rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 1rem;
+  margin-bottom: 0.2rem;
+}
+
+.event-time-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.event-time-row .event-name-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.event-time-row .event-time-input {
+  flex: 1.5;
+  min-width: 0;
+}
+
+.remove-event-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--accent-red);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.remove-event-btn:hover {
+  background: var(--accent-red);
+  color: #fff;
+}
+
+.add-event-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--accent-green);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.add-event-btn:hover {
+  background: var(--accent-green);
+  color: #fff;
 }
 
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */

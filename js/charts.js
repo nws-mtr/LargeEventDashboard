@@ -2,7 +2,27 @@
 // js/charts.js — SVG line graph rendering for hourly forecast
 // ============================================================================
 
-function renderLineGraph(containerId, data, labels, color, mode, threshold, threshDir, hours) {
+// Interpret a datetime-local string (no TZ) as if it's in the given timezone.
+// Returns epoch milliseconds in UTC.
+function parseDateInTimezone(dateStr, tz) {
+  if (!dateStr) return NaN;
+  // Parse the bare datetime string as if it were UTC to get a reference epoch
+  const naiveUtc = new Date(dateStr + "Z").getTime();
+  // Format that UTC instant in the target timezone using fixed parts
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  });
+  const p = fmt.formatToParts(new Date(naiveUtc));
+  const g = (type) => p.find((x) => x.type === type).value;
+  const tzLocalMs = new Date(`${g("year")}-${g("month")}-${g("day")}T${g("hour")}:${g("minute")}:${g("second")}Z`).getTime();
+  // offsetMs = how far ahead the TZ is from UTC (negative for west)
+  const offsetMs = tzLocalMs - naiveUtc;
+  // To convert "local time in tz" → UTC, subtract the offset
+  return naiveUtc - offsetMs;
+}
+
+function renderLineGraph(containerId, data, labels, varConfig, hours, eventTimes) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
@@ -13,6 +33,10 @@ function renderLineGraph(containerId, data, labels, color, mode, threshold, thre
   const ml = 38, mr = 8, mt = 14, mb = 28;
   const pw = w - ml - mr;
   const ph = h - mt - mb;
+
+  const color = varConfig.color || "#2196f3";
+  const mode  = varConfig.mode  || "value";
+  const unit  = varConfig.unit  || "";
 
   const validData = data.filter((v) => v !== null);
   if (validData.length === 0) {
@@ -40,30 +64,6 @@ function renderLineGraph(containerId, data, labels, color, mode, threshold, thre
   function getY(val) { return mt + ph - ((val - yMin) / yRange) * ph; }
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:100%">`;
-
-  // Adverse region shading
-  if (threshold !== null && threshold !== undefined) {
-    let inAdverse = false;
-    let segStart  = 0;
-    for (let i = 0; i < n; i++) {
-      const isAdverse = data[i] !== null && data[i] > threshold;
-      if (isAdverse && !inAdverse) { segStart = i; inAdverse = true; }
-      if ((!isAdverse || i === n - 1) && inAdverse) {
-        const segEnd = isAdverse ? i : i - 1;
-        const x1 = getX(Math.max(0, segStart - 0.5));
-        const x2 = getX(Math.min(n - 1, segEnd + 0.5));
-        svg += `<rect x="${x1}" y="${mt}" width="${x2 - x1}" height="${ph}" fill="rgba(255,193,7,0.12)" stroke="rgba(255,193,7,0.35)" stroke-width="1" stroke-dasharray="4,2"/>`;
-        inAdverse = false;
-      }
-    }
-  }
-
-  // Threshold line
-  if (threshold !== null && threshold !== undefined && threshold >= yMin && threshold <= yMax) {
-    const threshY = getY(threshold);
-    svg += `<line x1="${ml}" y1="${threshY}" x2="${w - mr}" y2="${threshY}" stroke="rgba(255,193,7,0.5)" stroke-width="1" stroke-dasharray="6,3"/>`;
-    svg += `<text x="${w - mr - 2}" y="${threshY - 3}" text-anchor="end" fill="rgba(255,193,7,0.7)" font-size="11" font-weight="600">${threshold}</text>`;
-  }
 
   // Y-axis gridlines + labels
   if (mode === "pct") {
@@ -104,17 +104,24 @@ function renderLineGraph(containerId, data, labels, color, mode, threshold, thre
     }
   }
 
-  // Kickoff marker
-  if (hours && hours.length > 0) {
-    const kickoffDate = new Date("2026-02-08T15:30:00-08:00");
-    const firstTime   = new Date(hours[0].time).getTime();
-    const lastTime    = new Date(hours[hours.length - 1].time).getTime();
-    const kickoffMs   = kickoffDate.getTime();
-    if (kickoffMs >= firstTime && kickoffMs <= lastTime) {
-      const kickoffIdx = (kickoffMs - firstTime) / (lastTime - firstTime) * (n - 1);
-      const kx = ml + (kickoffIdx / (n - 1)) * pw;
-      svg += `<line x1="${kx.toFixed(1)}" y1="${mt}" x2="${kx.toFixed(1)}" y2="${h - mb}" stroke="#f44336" stroke-width="3"/>`;
-      svg += `<text x="${(kx + 4).toFixed(1)}" y="${mt + 12}" fill="#f44336" font-size="14" font-weight="700">Kickoff</text>`;
+  // Event time annotations
+  if (eventTimes && eventTimes.length > 0 && hours && hours.length > 0) {
+    const tz = container.dataset.timezone || "America/Los_Angeles";
+    const firstTime = new Date(hours[0].time).getTime();
+    const lastTime  = new Date(hours[hours.length - 1].time).getTime();
+    const timeRange = lastTime - firstTime;
+    if (timeRange > 0) {
+      eventTimes.forEach((evt) => {
+        // datetime-local values have no timezone; interpret in venue timezone
+        const evtMs = parseDateInTimezone(evt.time, tz);
+        if (evtMs >= firstTime && evtMs <= lastTime) {
+          const evtIdx = (evtMs - firstTime) / timeRange * (n - 1);
+          const ex = ml + (evtIdx / (n - 1)) * pw;
+          svg += `<line x1="${ex.toFixed(1)}" y1="${mt}" x2="${ex.toFixed(1)}" y2="${h - mb}" stroke="#f44336" stroke-width="2" stroke-dasharray="4,2"/>`;
+          // Rotated label
+          svg += `<text x="${(ex + 3).toFixed(1)}" y="${mt + 4}" fill="#f44336" font-size="11" font-weight="600" transform="rotate(-45,${(ex + 3).toFixed(1)},${mt + 4})">${evt.name}</text>`;
+        }
+      });
     }
   }
 
@@ -128,8 +135,7 @@ function renderLineGraph(containerId, data, labels, color, mode, threshold, thre
     const py = getY(data[i]);
     pathParts.push((firstPoint ? "M" : "L") + px.toFixed(1) + "," + py.toFixed(1));
     firstPoint = false;
-    const isAdverse = data[i] > threshold;
-    dotsSvg += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${isAdverse ? 3 : 2}" fill="${isAdverse ? "#ffc107" : color}"/>`;
+    dotsSvg += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="2" fill="${color}"/>`;
   }
 
   if (pathParts.length > 1) {
@@ -145,42 +151,85 @@ function renderLineGraph(containerId, data, labels, color, mode, threshold, thre
     svg += `<path d="${pathParts.join(" ")}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
   }
 
+  // Invisible hover zone for tooltip
+  svg += `<rect class="chart-hover-zone" x="${ml}" y="${mt}" width="${pw}" height="${ph}" fill="transparent" style="cursor:crosshair"/>`;
+
   svg += dotsSvg + "</svg>";
   container.innerHTML = svg;
+
+  // Create tooltip element
+  let tooltip = container.querySelector(".chart-tooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.className = "chart-tooltip";
+    container.appendChild(tooltip);
+  }
+
+  // Mouseover handler
+  const hoverZone = container.querySelector(".chart-hover-zone");
+  if (hoverZone) {
+    hoverZone.addEventListener("mousemove", (e) => {
+      const rect = container.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      // Find nearest data point
+      let nearestIdx = 0;
+      let minDist = Infinity;
+      for (let i = 0; i < n; i++) {
+        if (data[i] === null) continue;
+        const dist = Math.abs(getX(i) - mouseX);
+        if (dist < minDist) { minDist = dist; nearestIdx = i; }
+      }
+      if (data[nearestIdx] !== null && hours && hours[nearestIdx]) {
+        const timeStr = new Date(hours[nearestIdx].time).toLocaleTimeString("en-US", {
+          hour: "numeric", minute: "2-digit", hour12: true,
+          timeZone: container.dataset.timezone || "America/Los_Angeles"
+        });
+        tooltip.textContent = `${timeStr}: ${data[nearestIdx]}${unit}`;
+        tooltip.style.display = "block";
+        tooltip.style.left = (getX(nearestIdx) - tooltip.offsetWidth / 2) + "px";
+        tooltip.style.top  = (getY(data[nearestIdx]) - tooltip.offsetHeight - 6) + "px";
+      }
+    });
+    hoverZone.addEventListener("mouseleave", () => {
+      tooltip.style.display = "none";
+    });
+  }
 }
 
-function buildTimelineChart(containerId, hours, thresholds) {
+function buildTimelineChart(containerId, hours, selectedVariables, eventTimes, timezone) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const maxTempThresh = (thresholds && thresholds.maxTemp)       || 80;
-  const minRainThresh = (thresholds && thresholds.minRainChance) || 15;
-  const minSkyThresh  = (thresholds && thresholds.minSkyCover)   || 50;
-
-  const temps = hours.map((h) => h.temperature);
-  const rains = hours.map((h) => h.probabilityOfPrecipitation);
-  const skies = hours.map((h) => h.skyCover);
+  const tz = timezone || "America/Los_Angeles";
 
   const labels = hours.map((h, i) => {
     const dt  = new Date(h.time);
-    const hr  = dt.toLocaleTimeString("en-US", { hour: "numeric", hour12: true, timeZone: "America/Los_Angeles" });
+    const hr  = dt.toLocaleTimeString("en-US", { hour: "numeric", hour12: true, timeZone: tz });
     if (i % 3 === 0) {
-      const day = dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "America/Los_Angeles" });
+      const day = dt.toLocaleDateString("en-US", { weekday: "short", timeZone: tz });
       return `${hr}|${day}`;
     }
     return null;
   });
 
-  container.innerHTML =
-    `<div class="timeline-chart"><div class="timeline-rows">
-      <div class="timeline-row"><div class="row-header">Temperature (F)</div><div class="row-graph" id="graph-temp"></div></div>
-      <div class="timeline-row"><div class="row-header">Rain Chance (%)</div><div class="row-graph" id="graph-rain"></div></div>
-      <div class="timeline-row"><div class="row-header">Cloud Cover (%)</div><div class="row-graph" id="graph-sky"></div></div>
-    </div></div>`;
+  // Build row HTML dynamically from selected variables
+  let rowsHtml = "";
+  selectedVariables.forEach((key, idx) => {
+    const varDef = FORECAST_VARIABLES.find((v) => v.key === key);
+    if (!varDef) return;
+    const graphId = `graph-var-${idx}`;
+    rowsHtml += `<div class="timeline-row"><div class="row-header">${varDef.label} (${varDef.unit})</div><div class="row-graph" id="${graphId}" data-timezone="${tz}"></div></div>`;
+  });
+
+  container.innerHTML = `<div class="timeline-chart"><div class="timeline-rows">${rowsHtml}</div></div>`;
 
   requestAnimationFrame(() => {
-    renderLineGraph("graph-temp", temps, labels, "#2196f3", "temp", maxTempThresh, "above", hours);
-    renderLineGraph("graph-rain", rains, labels, "#4caf50", "pct",  minRainThresh, "above", hours);
-    renderLineGraph("graph-sky",  skies, labels, "#9e9e9e", "pct",  minSkyThresh,  "above", hours);
+    selectedVariables.forEach((key, idx) => {
+      const varDef = FORECAST_VARIABLES.find((v) => v.key === key);
+      if (!varDef) return;
+      const graphId = `graph-var-${idx}`;
+      const dataArr = hours.map((h) => h[key] !== undefined ? h[key] : null);
+      renderLineGraph(graphId, dataArr, labels, varDef, hours, eventTimes);
+    });
   });
 }

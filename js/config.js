@@ -5,22 +5,15 @@
 function getDefaultEventConfig() {
   return {
     name: "Super Bowl LX",
-    location: "Levi's Stadium",
     latitude: 37.403147,
     longitude: -121.969814,
     startDate: "2026-02-08T15:30:00",
-    endDate: "2026-02-08T22:00:00",
-    adverseConditions: {
-      maxTemp: 80,
-      minRainChance: 15,
-      minSkyCover: 50
-    }
+    endDate: "2026-02-08T22:00:00"
   };
 }
 
 // API keys — read from localStorage, fall back to defaults
 const SYNOPTIC_API_KEY = localStorage.getItem("SYNOPTIC_API_KEY") || "e0fb17ad65504848934b1f1ece0c78f8";
-const OPENAI_API_KEY   = localStorage.getItem("OPENAI_API_KEY") || "";
 
 const NEAREST_STATION = "462PG";
 const RADAR_STATION   = "KMUX";
@@ -41,7 +34,22 @@ const CACHE_RADAR     = 120;
 const CACHE_SATELLITE = 300;
 const CACHE_FORECAST  = 3600;
 const CACHE_ALERTS    = 60;
-const CACHE_KEYPOINTS = 3600;
+const CACHE_WINDROSE  = 300;
+
+// ── Forecast Variables Registry ─────────────────────────────────────────────
+const FORECAST_VARIABLES = [
+  { key: "temperature",                  label: "Temperature",  unit: "\u00B0F",  color: "#2196f3", mode: "value" },
+  { key: "dewpoint",                     label: "Dewpoint",     unit: "\u00B0F",  color: "#66bb6a", mode: "value" },
+  { key: "relativeHumidity",             label: "Humidity",     unit: "%",   color: "#ab47bc", mode: "pct"   },
+  { key: "windSpeed",                    label: "Wind Speed",   unit: "mph", color: "#ff7043", mode: "value" },
+  { key: "windDirection",                label: "Wind Dir",     unit: "\u00B0",   color: "#78909c", mode: "value" },
+  { key: "windGust",                     label: "Wind Gust",    unit: "mph", color: "#ffa726", mode: "value" },
+  { key: "probabilityOfPrecipitation",   label: "Rain Chance",  unit: "%",   color: "#4caf50", mode: "pct"   },
+  { key: "skyCover",                     label: "Cloud Cover",  unit: "%",   color: "#9e9e9e", mode: "pct"   },
+  { key: "qpf",                          label: "Precip Amt",   unit: "in",  color: "#29b6f6", mode: "value" }
+];
+
+const DEFAULT_SELECTED_VARIABLES = ["temperature", "probabilityOfPrecipitation", "skyCover"];
 
 function getConfig() {
   let stored = null;
@@ -59,5 +67,16 @@ function getConfig() {
   } else {
     delete def.timezone;
   }
+
+  // Merge user-selected forecast variables (array of 3 keys)
+  def.selectedVariables = (stored && Array.isArray(stored.selectedVariables) && stored.selectedVariables.length === 3)
+    ? stored.selectedVariables
+    : DEFAULT_SELECTED_VARIABLES.slice();
+
+  // Merge user-configured event times (array of {name, time})
+  def.eventTimes = (stored && Array.isArray(stored.eventTimes))
+    ? stored.eventTimes
+    : [];
+
   return Promise.resolve(def);
 }

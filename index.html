@@ -20,12 +20,9 @@
       </div>
       <div class="event-info">
         <h1 id="event-name">Event Weather</h1>
-        <div class="event-details">
-          <span id="event-location"></span>
-          <span id="event-date"></span>
-        </div>
       </div>
       <div class="current-time">
+        <div id="current-date"></div>
         <div id="clock"></div>
         <div id="timezone"></div>
       </div>
@@ -81,11 +78,11 @@
         </div>
       </section>
 
-      <!-- Key Points (AI-generated forecast summary) -->
-      <section class="panel key-points">
-        <h2>Key Points</h2>
-        <div id="keypoints-container" class="keypoints-content">
-          <div class="loading-indicator"><div class="loading-spinner"></div> Analyzing forecast...</div>
+      <!-- Wind Rose (last hour of surface observations) -->
+      <section class="panel wind-rose">
+        <h2>Wind Rose (Last Hour)</h2>
+        <div id="windrose-container" class="windrose-content">
+          <div class="loading-indicator"><div class="loading-spinner"></div> Loading wind data...</div>
         </div>
       </section>
 
@@ -101,11 +98,6 @@
       <section class="panel satellite-display">
         <h2>Satellite</h2>
         <div class="satellite-content">
-          <div class="satellite-channel-selector">
-            <button class="channel-btn active" data-channel="G18-ABI-CONUS-BAND02" title="Visible (0.64µm)">VIS</button>
-            <button class="channel-btn"        data-channel="G18-ABI-CONUS-BAND09" title="Water Vapor (6.9µm)">WV</button>
-            <button class="channel-btn"        data-channel="G18-ABI-CONUS-BAND13" title="Clean IR (10.3µm)">IR</button>
-          </div>
           <div id="satellite-map"></div>
         </div>
       </section>
@@ -128,12 +120,10 @@
       <div class="data-sources">
         Data: Synoptic API / NOAA NWS / SSEC RealEarth GOES
       </div>
+      <button id="config-btn" class="config-btn-footer" title="Configure Dashboard">&#9881; Config</button>
     </footer>
 
   </div>
-
-  <!-- Config Button and Modal -->
-  <button id="config-btn" class="config-btn" title="Configure Dashboard">&#9881; Config</button>
   <div id="config-modal" class="config-modal" style="display:none;">
     <div class="config-modal-content">
       <h2>Dashboard Configuration</h2>
@@ -144,6 +134,18 @@
         <input type="number" id="config-latitude"   name="latitude"  step="any" required>
         <label for="config-longitude">Location Longitude</label>
         <input type="number" id="config-longitude"  name="longitude" step="any" required>
+
+        <div class="config-section-header">Forecast Variables</div>
+        <label for="config-var-1">Chart Row 1</label>
+        <select id="config-var-1"></select>
+        <label for="config-var-2">Chart Row 2</label>
+        <select id="config-var-2"></select>
+        <label for="config-var-3">Chart Row 3</label>
+        <select id="config-var-3"></select>
+
+        <div class="config-section-header">Event Times <button type="button" id="add-event-btn" class="add-event-btn">+ Add Event</button></div>
+        <div id="event-times-list"></div>
+
         <div class="config-modal-actions">
           <button type="submit" id="config-save-btn"   class="config-save-btn">Save</button>
           <button type="button" id="config-cancel-btn" class="config-cancel-btn">Cancel</button>
@@ -157,6 +159,7 @@
   <script src="js/cache.js"></script>
   <script src="js/api.js"></script>
   <script src="js/charts.js"></script>
+  <script src="js/windrose.js"></script>
   <script src="js/maps.js"></script>
   <script src="js/dashboard.js"></script>
 </body>

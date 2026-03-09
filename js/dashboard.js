@@ -12,11 +12,60 @@ function setStoredConfig(cfg) {
   localStorage.setItem("dashboardConfig", JSON.stringify(cfg));
 }
 
+function populateVariableSelects(selectedVars) {
+  const ids = ["config-var-1", "config-var-2", "config-var-3"];
+  ids.forEach((id, i) => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    select.innerHTML = "";
+    FORECAST_VARIABLES.forEach((v) => {
+      const opt = document.createElement("option");
+      opt.value = v.key;
+      opt.textContent = `${v.label} (${v.unit})`;
+      if (v.key === selectedVars[i]) opt.selected = true;
+      select.appendChild(opt);
+    });
+  });
+}
+
+function renderEventTimeRow(name, time) {
+  const row = document.createElement("div");
+  row.className = "event-time-row";
+  row.innerHTML =
+    `<input type="text" class="event-name-input" placeholder="Event name" value="${name || ""}">` +
+    `<input type="datetime-local" class="event-time-input" value="${time || ""}">` +
+    `<button type="button" class="remove-event-btn" title="Remove">&times;</button>`;
+  row.querySelector(".remove-event-btn").addEventListener("click", () => row.remove());
+  return row;
+}
+
+function populateEventTimes(eventTimes) {
+  const list = document.getElementById("event-times-list");
+  if (!list) return;
+  list.innerHTML = "";
+  (eventTimes || []).forEach((evt) => {
+    list.appendChild(renderEventTimeRow(evt.name, evt.time));
+  });
+}
+
+function readEventTimesFromForm() {
+  const rows = document.querySelectorAll("#event-times-list .event-time-row");
+  const events = [];
+  rows.forEach((row) => {
+    const name = row.querySelector(".event-name-input").value.trim();
+    const time = row.querySelector(".event-time-input").value;
+    if (name && time) events.push({ name, time });
+  });
+  return events;
+}
+
 function showConfigModal(config) {
   document.getElementById("config-modal").style.display = "flex";
   document.getElementById("config-event-name").value = config?.name      || "";
   document.getElementById("config-latitude").value   = config?.latitude  || "";
   document.getElementById("config-longitude").value  = config?.longitude || "";
+  populateVariableSelects(config?.selectedVariables || DEFAULT_SELECTED_VARIABLES);
+  populateEventTimes(config?.eventTimes || []);
 }
 
 function hideConfigModal() {
@@ -32,19 +81,31 @@ class WeatherDashboard {
 
     // Radar map state
     this.radarMap         = null;
-    this.activeRadarLayer = null;
     this.radarCounties    = null;
     this.venueMarkerRadar = null;
     this.venueCircleRadar = null;
+    // Radar animation
+    this.radarFrames      = [];
+    this.radarTimes       = [];
+    this.radarFrameIndex  = 0;
+    this.radarAnimInterval = null;
+    this.radarAnimSpeed   = 500;
+    this.radarDwellSpeed  = 1500; // dwell on last frame
 
     // Satellite map state
     this.satelliteMap     = null;
-    this.activeSatLayer   = null;
     this.satLabelsLayer   = null;
     this.satCounties      = null;
     this.venueMarkerSat   = null;
     this.venueCircleSat   = null;
     this.satelliteChannel = "G18-ABI-CONUS-BAND02";
+    // Satellite animation
+    this.satFrames        = [];
+    this.satTimes         = [];
+    this.satFrameIndex    = 0;
+    this.satAnimInterval  = null;
+    this.satAnimSpeed     = 500;
+    this.satDwellSpeed    = 1500; // dwell on last frame
 
     this.init();
   }
@@ -80,20 +141,12 @@ class WeatherDashboard {
           if (tzEl) tzEl.textContent = this.getTimezoneDisplayName(this.displayTimezone || config.timezone);
         } catch {}
 
-        // Choose GOES satellite based on longitude
+        // Choose GOES satellite based on longitude, then auto VIS/IR
         try {
-          const prefix     = this.chooseSatellitePrefix(config.longitude);
-          const bandSuffix = this.satelliteChannel.includes("-BAND")
-            ? this.satelliteChannel.substring(this.satelliteChannel.indexOf("-BAND"))
-            : "-BAND02";
-          this.satelliteChannel = prefix + bandSuffix;
-
-          document.querySelectorAll(".channel-btn").forEach((btn) => {
-            const ch = btn.getAttribute("data-channel");
-            if (ch) btn.setAttribute("data-channel", ch.replace(/G1[89]-ABI-CONUS/, prefix));
-          });
-
-          if (this.satelliteMap) this.loadLatestSatelliteFrame();
+          const prefix = this.chooseSatellitePrefix(config.longitude);
+          const band   = this.chooseSatelliteBand(config.longitude);
+          this.satelliteChannel = prefix + "-" + band;
+          if (this.satelliteMap) this.loadSatelliteLoop();
         } catch (e) {
           console.warn("Satellite selection error:", e);
         }
@@ -104,7 +157,7 @@ class WeatherDashboard {
   updateEventInfo() {
     if (!this.config) return;
     document.getElementById("event-name").textContent     = this.config.name ? this.config.name + " Weather" : "Event Weather";
-    document.getElementById("event-location").textContent = this.config.location || `${this.config.latitude}, ${this.config.longitude}`;
+    document.getElementById("event-location").textContent = `${this.config.latitude.toFixed(4)}, ${this.config.longitude.toFixed(4)}`;
     document.getElementById("event-date").textContent     = new Date(this.config.startDate).toLocaleDateString("en-US", {
       weekday: "long", year: "numeric", month: "long", day: "numeric"
     });
@@ -122,6 +175,13 @@ class WeatherDashboard {
   chooseSatellitePrefix(longitude) {
     if (typeof longitude !== "number" || isNaN(longitude)) return "G18-ABI-CONUS";
     return (longitude >= -105) ? "G19-ABI-CONUS" : "G18-ABI-CONUS";
+  }
+
+  chooseSatelliteBand(longitude) {
+    // Auto VIS/IR: use venue local hour to decide
+    const tz = this.chooseTimezone(longitude);
+    const hour = parseInt(new Date().toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: tz }), 10);
+    return (hour >= 7 && hour < 18) ? "BAND02" : "BAND13";
   }
 
   getTimezoneDisplayName(tz) {
@@ -160,7 +220,7 @@ class WeatherDashboard {
     const { map, countiesLayer } = initRadarMap("radar-map", venueLatLng);
     this.radarMap      = map;
     this.radarCounties = countiesLayer;
-    this.loadLatestRadarFrame();
+    this.loadRadarLoop();
   }
 
   setupSatelliteMap() {
@@ -169,18 +229,7 @@ class WeatherDashboard {
     this.satelliteMap   = map;
     this.satLabelsLayer = labelsLayer;
     this.satCounties    = countiesLayer;
-
-    // Channel selector buttons
-    document.querySelectorAll(".channel-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll(".channel-btn").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        this.satelliteChannel = btn.getAttribute("data-channel");
-        this.loadLatestSatelliteFrame();
-      });
-    });
-
-    this.loadLatestSatelliteFrame();
+    this.loadSatelliteLoop();
   }
 
   applyVenueLocation(lat, lon) {
@@ -208,9 +257,9 @@ class WeatherDashboard {
     }
   }
 
-  // ── Radar ──────────────────────────────────────────────────────────────────
+  // ── Radar Animation ────────────────────────────────────────────────────────
 
-  loadLatestRadarFrame() {
+  loadRadarLoop() {
     getRadarTimes()
       .then((data) => {
         if (data.error) {
@@ -222,37 +271,86 @@ class WeatherDashboard {
           document.getElementById("radar-timestamp-overlay").textContent = "No data";
           return;
         }
-        this.showRadarFrame(times[times.length - 1]);
+
+        // Stop existing animation and remove old layers
+        this.stopRadarAnimation();
+        this.radarFrames.forEach((layer) => this.radarMap.removeLayer(layer));
+        this.radarFrames = [];
+        this.radarTimes  = times;
+        this.radarFrameIndex = 0;
+
+        // Pre-create all frame layers with opacity 0
+        times.forEach((timeStr) => {
+          const layer = L.tileLayer.wms(
+            "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows?", {
+              layers:      "conus_bref_qcd",
+              format:      "image/png",
+              transparent: true,
+              version:     "1.3.0",
+              crs:         L.CRS.EPSG3857,
+              styles:      "radar_reflectivity",
+              time:        timeStr,
+              opacity:     0,
+              attribution: "MRMS — NOAA/NCEP"
+            }
+          ).addTo(this.radarMap);
+          this.radarFrames.push(layer);
+        });
+
+        // Show first frame
+        if (this.radarFrames.length > 0) {
+          this.radarFrames[0].setOpacity(0.7);
+          if (this.radarCounties) this.radarCounties.bringToFront();
+          document.getElementById("radar-timestamp-overlay").textContent = this.formatTimePST(times[0]);
+        }
+
+        // Start animation loop
+        if (this.radarFrames.length > 1) {
+          this.scheduleRadarAdvance();
+        }
       })
       .catch(() => {
         document.getElementById("radar-timestamp-overlay").textContent = "Error loading";
       });
   }
 
-  showRadarFrame(timeStr) {
-    if (this.activeRadarLayer) this.radarMap.removeLayer(this.activeRadarLayer);
-
-    this.activeRadarLayer = L.tileLayer.wms(
-      "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows?", {
-        layers:      "conus_bref_qcd",
-        format:      "image/png",
-        transparent: true,
-        version:     "1.3.0",
-        crs:         L.CRS.EPSG3857,
-        styles:      "radar_reflectivity",
-        time:        timeStr,
-        opacity:     0.7,
-        attribution: "MRMS — NOAA/NCEP"
-      }
-    ).addTo(this.radarMap);
-
-    if (this.radarCounties) this.radarCounties.bringToFront();
-    document.getElementById("radar-timestamp-overlay").textContent = this.formatTimePST(timeStr);
+  scheduleRadarAdvance() {
+    // Dwell longer on the last frame before looping
+    const isLastFrame = this.radarFrameIndex === this.radarFrames.length - 1;
+    const delay = isLastFrame ? this.radarDwellSpeed : this.radarAnimSpeed;
+    this.radarAnimInterval = setTimeout(() => {
+      this.advanceRadarFrame();
+      this.scheduleRadarAdvance();
+    }, delay);
   }
 
-  // ── Satellite ──────────────────────────────────────────────────────────────
+  advanceRadarFrame() {
+    if (this.radarFrames.length === 0) return;
+    this.radarFrames[this.radarFrameIndex].setOpacity(0);
+    this.radarFrameIndex = (this.radarFrameIndex + 1) % this.radarFrames.length;
+    this.radarFrames[this.radarFrameIndex].setOpacity(0.7);
+    if (this.radarCounties) this.radarCounties.bringToFront();
+    document.getElementById("radar-timestamp-overlay").textContent =
+      this.formatTimePST(this.radarTimes[this.radarFrameIndex]);
+  }
 
-  loadLatestSatelliteFrame() {
+  stopRadarAnimation() {
+    if (this.radarAnimInterval) {
+      clearTimeout(this.radarAnimInterval);
+      this.radarAnimInterval = null;
+    }
+  }
+
+  // ── Satellite Animation ────────────────────────────────────────────────────
+
+  loadSatelliteLoop() {
+    // Auto-select VIS/IR before fetching
+    if (this.config && typeof this.config.longitude === "number") {
+      const prefix = this.chooseSatellitePrefix(this.config.longitude);
+      const band   = this.chooseSatelliteBand(this.config.longitude);
+      this.satelliteChannel = prefix + "-" + band;
+    }
+
     getSatelliteTimes(this.satelliteChannel)
       .then((data) => {
         if (data.error) {
@@ -264,56 +362,93 @@ class WeatherDashboard {
           document.getElementById("satellite-timestamp-overlay").textContent = "No data";
           return;
         }
-        this.showSatelliteFrame(times[times.length - 1], data.channelName);
+
+        // Stop existing animation and remove old layers
+        this.stopSatelliteAnimation();
+        this.satFrames.forEach((layer) => this.satelliteMap.removeLayer(layer));
+        this.satFrames = [];
+        this.satTimes  = times;
+        this.satFrameIndex = 0;
+
+        const channelName = data.channelName || this.satelliteChannel;
+
+        // Pre-create all frame layers with opacity 0
+        times.forEach((timeStr) => {
+          const layer = L.tileLayer(
+            `https://realearth.ssec.wisc.edu/api/image?products=${this.satelliteChannel}.100&x={x}&y={y}&z={z}&time=${timeStr}`, {
+              opacity:        0,
+              maxZoom:        12,
+              crossOrigin:    "anonymous",
+              referrerPolicy: "no-referrer",
+              attribution:    "GOES — SSEC RealEarth"
+            }
+          ).addTo(this.satelliteMap);
+          this.satFrames.push(layer);
+        });
+
+        // Show first frame
+        if (this.satFrames.length > 0) {
+          this.satFrames[0].setOpacity(0.85);
+          if (this.satLabelsLayer) this.satLabelsLayer.bringToFront();
+          if (this.satCounties) this.satCounties.bringToFront();
+          document.getElementById("satellite-timestamp-overlay").textContent =
+            this.formatSsecTime(times[0]) + " " + channelName;
+        }
+
+        this._satChannelName = channelName;
+
+        // Start animation loop
+        if (this.satFrames.length > 1) {
+          this.scheduleSatelliteAdvance();
+        }
       })
       .catch(() => {
         document.getElementById("satellite-timestamp-overlay").textContent = "Error loading";
       });
   }
 
-  showSatelliteFrame(timeStr, channelName) {
-    if (this.activeSatLayer) this.satelliteMap.removeLayer(this.activeSatLayer);
-
-    this.activeSatLayer = L.tileLayer(
-      `https://realearth.ssec.wisc.edu/api/image?products=${this.satelliteChannel}.100&x={x}&y={y}&z={z}&time=${timeStr}`, {
-        opacity:        0.85,
-        maxZoom:        12,
-        crossOrigin:    "anonymous",
-        referrerPolicy: "no-referrer",
-        attribution:    "GOES — SSEC RealEarth"
-      }
-    ).addTo(this.satelliteMap);
-
-    if (this.satLabelsLayer) this.satLabelsLayer.bringToFront();
-    if (this.satCounties)    this.satCounties.bringToFront();
-
-    const chName = channelName || { "G18-ABI-CONUS-BAND02": "Visible", "G18-ABI-CONUS-BAND09": "Water Vapor", "G18-ABI-CONUS-BAND13": "Clean IR" }[this.satelliteChannel] || this.satelliteChannel;
-    document.getElementById("satellite-timestamp-overlay").textContent = this.formatSsecTime(timeStr, chName);
+  scheduleSatelliteAdvance() {
+    const isLastFrame = this.satFrameIndex === this.satFrames.length - 1;
+    const delay = isLastFrame ? this.satDwellSpeed : this.satAnimSpeed;
+    this.satAnimInterval = setTimeout(() => {
+      this.advanceSatelliteFrame();
+      this.scheduleSatelliteAdvance();
+    }, delay);
   }
 
-  formatSsecTime(ssecStr) {
-    try {
-      const iso = `${ssecStr.substring(0,4)}-${ssecStr.substring(4,6)}-${ssecStr.substring(6,8)}T${ssecStr.substring(9,11)}:${ssecStr.substring(11,13)}:${ssecStr.substring(13,15)}Z`;
-      return new Date(iso).toLocaleTimeString("en-US", {
-        hour: "numeric", minute: "2-digit", hour12: true,
-        timeZone: this.displayTimezone || "America/Los_Angeles"
-      });
-    } catch { return ssecStr; }
+  advanceSatelliteFrame() {
+    if (this.satFrames.length === 0) return;
+    this.satFrames[this.satFrameIndex].setOpacity(0);
+    this.satFrameIndex = (this.satFrameIndex + 1) % this.satFrames.length;
+    this.satFrames[this.satFrameIndex].setOpacity(0.85);
+    if (this.satLabelsLayer) this.satLabelsLayer.bringToFront();
+    if (this.satCounties) this.satCounties.bringToFront();
+    document.getElementById("satellite-timestamp-overlay").textContent =
+      this.formatSsecTime(this.satTimes[this.satFrameIndex]) + " " + (this._satChannelName || "");
+  }
+
+  stopSatelliteAnimation() {
+    if (this.satAnimInterval) {
+      clearTimeout(this.satAnimInterval);
+      this.satAnimInterval = null;
+    }
   }
 
   // ── Data Loading ───────────────────────────────────────────────────────────
 
   loadAllData() {
-    this.loadCurrentWeather();
+    // Load weather first, then use same station for wind rose
+    this.loadCurrentWeather().then((stationId) => {
+      this.loadWindRose(stationId);
+    });
     this.loadHourlyForecast();
-    this.loadKeyPoints();
     this.updateLastUpdateTime();
   }
 
   loadCurrentWeather() {
-    getCurrentWeather()
+    return getCurrentWeather()
       .then((data) => {
-        if (data.error) { console.error("Weather error:", data.error); return; }
+        if (data.error) { console.error("Weather error:", data.error); return null; }
         const obs  = data.observations;
         const temp = obs.temperature ? obs.temperature.value : null;
         document.getElementById("current-temp").textContent = temp !== null ? Math.round(temp) : "--";
@@ -337,9 +472,22 @@ class WeatherDashboard {
         if (temp !== null && windSpeed > 3 && temp < 50) {
           feelsLike = 35.74 + (0.6215 * temp) - (35.75 * Math.pow(windSpeed, 0.16))
                     + (0.4275 * temp * Math.pow(windSpeed, 0.16));
+        } else if (temp !== null && temp > 80) {
+          // Simple heat index approximation
+          const rh = obs.relativeHumidity ? obs.relativeHumidity.value : 50;
+          feelsLike = -42.379 + 2.04901523 * temp + 10.14333127 * rh
+                    - 0.22475541 * temp * rh - 0.00683783 * temp * temp
+                    - 0.05481717 * rh * rh + 0.00122874 * temp * temp * rh
+                    + 0.00085282 * temp * rh * rh - 0.00000199 * temp * temp * rh * rh;
         }
-        document.getElementById("feels-like").textContent    = feelsLike !== null ? Math.round(feelsLike) + "F" : "--";
-        document.getElementById("dewpoint").textContent      = obs.dewpoint ? Math.round(obs.dewpoint.value) + "F" : "--";
+        const feelsLabel = temp !== null && temp > 80 ? "Heat Idx" : (temp !== null && temp < 50 ? "Wind Chill" : "Feels Like");
+        const feelsEl = document.getElementById("feels-like");
+        feelsEl.textContent = feelsLike !== null ? Math.round(feelsLike) + "\u00B0F" : "--";
+        // Update the label text
+        const labelEl = feelsEl.closest(".detail-item")?.querySelector(".label");
+        if (labelEl) labelEl.textContent = feelsLabel;
+
+        document.getElementById("dewpoint").textContent      = obs.dewpoint ? Math.round(obs.dewpoint.value) + "\u00B0F" : "--";
         document.getElementById("humidity").textContent      = obs.relativeHumidity ? Math.round(obs.relativeHumidity.value) + "%" : "--";
         document.getElementById("wind").textContent          = obs.wind && obs.wind.speed ? `${obs.wind.cardinal} ${Math.round(obs.wind.speed.value)} mph` : "--";
         document.getElementById("wind-dir").textContent      = (obs.wind && obs.wind.cardinal) || "--";
@@ -352,8 +500,10 @@ class WeatherDashboard {
           const footerEl = document.querySelector(".data-sources");
           if (footerEl) footerEl.textContent = `Data: ${data.source} (${data.station.id}) / NOAA NWS / SSEC RealEarth`;
         }
+
+        return data.station ? data.station.id : null;
       })
-      .catch((err) => console.error("Weather fetch error:", err));
+      .catch((err) => { console.error("Weather fetch error:", err); return null; });
   }
 
   loadHourlyForecast() {
@@ -368,7 +518,9 @@ class WeatherDashboard {
           document.getElementById("hourly-container").innerHTML = "<div class=\"error-msg\">No gridpoint data available</div>";
           return;
         }
-        buildTimelineChart("hourly-container", hours, data.adverseThresholds);
+        const selectedVars = (this.config && this.config.selectedVariables) || DEFAULT_SELECTED_VARIABLES;
+        const eventTimes   = (this.config && this.config.eventTimes) || [];
+        buildTimelineChart("hourly-container", hours, selectedVars, eventTimes, this.displayTimezone);
       })
       .catch((err) => {
         console.error("Gridpoint forecast fetch error:", err);
@@ -376,24 +528,23 @@ class WeatherDashboard {
       });
   }
 
-  loadKeyPoints() {
-    getKeyPoints()
+  loadWindRose(stationId) {
+    getWindRoseData(stationId)
       .then((data) => {
-        const container = document.getElementById("keypoints-container");
+        const container = document.getElementById("windrose-container");
         if (data.error) {
           container.innerHTML = `<div class="error-msg">${data.error}</div>`;
           return;
         }
-        const bullets = data.bullets || [];
-        if (bullets.length === 0) {
-          container.innerHTML = "<div class=\"error-msg\">No key points available</div>";
+        if (data.totalObs === 0) {
+          container.innerHTML = "<div class=\"error-msg\">No wind observations in last hour</div>";
           return;
         }
-        container.innerHTML = "<ul class=\"keypoints-list\">" + bullets.map((b) => `<li class="keypoint-item">${b}</li>`).join("") + "</ul>";
+        renderWindRose("windrose-container", data);
       })
       .catch((err) => {
-        console.error("Key points fetch error:", err);
-        document.getElementById("keypoints-container").innerHTML = "<div class=\"error-msg\">Failed to load key points</div>";
+        console.error("Wind rose fetch error:", err);
+        document.getElementById("windrose-container").innerHTML = "<div class=\"error-msg\">Failed to load wind data</div>";
       });
   }
 
@@ -408,6 +559,16 @@ class WeatherDashboard {
     } catch { return isoStr; }
   }
 
+  formatSsecTime(ssecStr) {
+    try {
+      const iso = `${ssecStr.substring(0,4)}-${ssecStr.substring(4,6)}-${ssecStr.substring(6,8)}T${ssecStr.substring(9,11)}:${ssecStr.substring(11,13)}:${ssecStr.substring(13,15)}Z`;
+      return new Date(iso).toLocaleTimeString("en-US", {
+        hour: "numeric", minute: "2-digit", hour12: true,
+        timeZone: this.displayTimezone || "America/Los_Angeles"
+      });
+    } catch { return ssecStr; }
+  }
+
   updateLastUpdateTime() {
     document.getElementById("last-update").textContent = new Date().toLocaleTimeString("en-US", {
       timeZone: this.displayTimezone || "America/Los_Angeles"
@@ -415,12 +576,12 @@ class WeatherDashboard {
   }
 
   startAutoRefresh() {
-    // Full page reload every 30 minutes
-    setTimeout(() => window.location.reload(), 30 * 60 * 1000);
-    // Radar refresh every 2 minutes
-    setInterval(() => this.loadLatestRadarFrame(), 2 * 60 * 1000);
-    // Satellite refresh every 5 minutes
-    setInterval(() => this.loadLatestSatelliteFrame(), 5 * 60 * 1000);
+    // Radar refresh every 5 minutes
+    setInterval(() => this.loadRadarLoop(), 5 * 60 * 1000);
+    // Satellite refresh every 10 minutes
+    setInterval(() => this.loadSatelliteLoop(), 10 * 60 * 1000);
+    // Data refresh every 30 minutes (weather, forecast, wind rose)
+    setInterval(() => this.loadAllData(), 30 * 60 * 1000);
   }
 }
 
@@ -432,6 +593,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const configBtn    = document.getElementById("config-btn");
   const configForm   = document.getElementById("config-form");
   const configCancel = document.getElementById("config-cancel-btn");
+  const addEventBtn  = document.getElementById("add-event-btn");
 
   configBtn.addEventListener("click", () => {
     const stored = getStoredConfig();
@@ -440,13 +602,24 @@ document.addEventListener("DOMContentLoaded", function () {
 
   configCancel.addEventListener("click", hideConfigModal);
 
+  addEventBtn.addEventListener("click", () => {
+    const list = document.getElementById("event-times-list");
+    list.appendChild(renderEventTimeRow("", ""));
+  });
+
   configForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const newConfig = {
       ...dashboard.config,
-      name:      document.getElementById("config-event-name").value.trim(),
-      latitude:  parseFloat(document.getElementById("config-latitude").value),
-      longitude: parseFloat(document.getElementById("config-longitude").value)
+      name:              document.getElementById("config-event-name").value.trim(),
+      latitude:          parseFloat(document.getElementById("config-latitude").value),
+      longitude:         parseFloat(document.getElementById("config-longitude").value),
+      selectedVariables: [
+        document.getElementById("config-var-1").value,
+        document.getElementById("config-var-2").value,
+        document.getElementById("config-var-3").value
+      ],
+      eventTimes:        readEventTimesFromForm()
     };
     setStoredConfig(newConfig);
     hideConfigModal();
