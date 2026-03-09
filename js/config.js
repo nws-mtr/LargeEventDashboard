@@ -4,18 +4,18 @@
 
 function getDefaultEventConfig() {
   return {
-    name: "Super Bowl LX",
-    latitude: 37.403147,
-    longitude: -121.969814,
+    name: "Test Event",
+    latitude: 36.593,
+    longitude: -121.855,
     startDate: "2026-02-08T15:30:00",
     endDate: "2026-02-08T22:00:00"
   };
 }
 
-// API keys — read from localStorage, fall back to defaults
-const SYNOPTIC_API_KEY = localStorage.getItem("SYNOPTIC_API_KEY") || "e0fb17ad65504848934b1f1ece0c78f8";
+// API keys — loaded from js/keys.js (not committed to repo)
+// SYNOPTIC_API_KEY is defined in js/keys.js
 
-const NEAREST_STATION = "462PG";
+const NEAREST_STATION = "KMRY";
 const RADAR_STATION   = "KMUX";
 
 const RADAR_WMS_URL      = "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows";

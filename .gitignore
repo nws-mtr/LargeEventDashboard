@@ -38,6 +38,9 @@ FRONTEND_UPDATE.md
 SYSTEM_STATUS.md
 assests/
 
+# API keys
+js/keys.js
+
 # GAS Build
 not_used/
 CLAUDE.md
