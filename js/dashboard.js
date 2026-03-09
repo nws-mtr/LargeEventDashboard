@@ -156,8 +156,7 @@ class WeatherDashboard {
 
   updateEventInfo() {
     if (!this.config) return;
-    document.getElementById("event-name").textContent = this.config.name ? this.config.name + " Weather" : "Event Weather";
-    document.getElementById("timezone").textContent   = this.getTimezoneDisplayName(this.displayTimezone || this.config.timezone);
+    document.getElementById("timezone").textContent = this.getTimezoneDisplayName(this.displayTimezone || this.config.timezone);
   }
 
   chooseTimezone(longitude) {

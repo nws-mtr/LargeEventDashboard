@@ -14,15 +14,10 @@
 
     <!-- Header -->
     <header class="dashboard-header">
-      <div class="header-logos">
-        <img src="assets/noaa_logo.png" alt="NOAA" class="header-logo">
-        <img src="assets/nws_logo.png"  alt="NWS"  class="header-logo">
-      </div>
-      <div class="event-info">
-        <h1 id="event-name">Event Weather</h1>
-      </div>
-      <div class="current-time">
+      <div class="header-date">
         <div id="current-date"></div>
+      </div>
+      <div class="header-time">
         <div id="clock"></div>
         <div id="timezone"></div>
       </div>
@@ -67,7 +62,7 @@
               <span id="wind-dir" class="detail-value">--</span>
             </div>
             <div class="detail-item">
-              <span class="label">Gusts</span>
+              <span class="label">Gust</span>
               <span id="wind-gust" class="detail-value">--</span>
             </div>
             <div class="detail-item">
@@ -80,7 +75,7 @@
 
       <!-- Wind Rose (last hour of surface observations) -->
       <section class="panel wind-rose">
-        <h2>Wind Rose (Last 2 Hours)</h2>
+        <h2>Wind Rose (Last Hour)</h2>
         <div id="windrose-container" class="windrose-content">
           <div class="loading-indicator"><div class="loading-spinner"></div> Loading wind data...</div>
         </div>
