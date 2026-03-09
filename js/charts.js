@@ -48,6 +48,10 @@ function renderLineGraph(containerId, data, labels, varConfig, hours, eventTimes
   if (mode === "pct") {
     yMin = 0;
     yMax = 100;
+  } else if (varConfig.key === "qpf") {
+    yMin = 0;
+    const dataMax = Math.max(...validData);
+    yMax = dataMax <= 0 ? 0.1 : Math.ceil(dataMax * 10 + 1) / 10;
   } else {
     yMin = Math.floor((Math.min(...validData) - 2) / 5) * 5;
     yMax = Math.ceil((Math.max(...validData) + 2) / 5) * 5;
@@ -74,12 +78,14 @@ function renderLineGraph(containerId, data, labels, varConfig, hours, eventTimes
       svg += `<text x="${ml - 4}" y="${gy + 4}" text-anchor="end" fill="#9fa8da" font-size="13">${Math.round(gVal)}</text>`;
     }
   } else {
+    const step = (varConfig.key === "qpf") ? yRange / 4 : 5;
     let firstLabel = true;
-    for (let gVal = yMin; gVal <= yMax; gVal += 5) {
+    for (let gVal = yMin; gVal <= yMax + step * 0.01; gVal += step) {
       const gy = getY(gVal);
       svg += `<line x1="${ml}" y1="${gy}" x2="${w - mr}" y2="${gy}" stroke="rgba(40,53,147,0.3)" stroke-width="0.5"/>`;
       if (!firstLabel) {
-        svg += `<text x="${ml - 4}" y="${gy + 4}" text-anchor="end" fill="#9fa8da" font-size="13">${Math.round(gVal)}</text>`;
+        const label = (varConfig.key === "qpf") ? gVal.toFixed(2) : Math.round(gVal);
+        svg += `<text x="${ml - 4}" y="${gy + 4}" text-anchor="end" fill="#9fa8da" font-size="13">${label}</text>`;
       }
       firstLabel = false;
     }
