@@ -88,6 +88,7 @@ async function fetchSynopticWeather_() {
     + `&radius=${config.latitude},${config.longitude},50`
     + "&limit=1&within=120"
     + "&vars=air_temp,dew_point_temperature,relative_humidity,wind_speed,wind_direction,wind_gust,visibility,cloud_layer_1_code,cloud_layer_2_code,cloud_layer_3_code,precip_accum_one_hour,sea_level_pressure,altimeter"
+    + "&network=1,2"
     + "&obtimezone=UTC&output=json";
   const data = await fetchJSON(url);
   if (!data.STATION || data.STATION.length === 0) {
@@ -411,7 +412,7 @@ const WIND_SPEED_BINS = [
 async function fetchSynopticTimeSeries_(stationId) {
   const config = await getConfig();
   const end   = new Date();
-  const start = new Date(end.getTime() - 2 * 60 * 60 * 1000); // 2 hours ago
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
 
   const fmt = (d) => d.toISOString().replace(/[-:T]/g, "").substring(0, 12);
 
@@ -425,6 +426,7 @@ async function fetchSynopticTimeSeries_(stationId) {
     + stationParam
     + `&start=${fmt(start)}&end=${fmt(end)}`
     + "&vars=wind_speed,wind_direction"
+    + "&network=1,2"
     + "&obtimezone=UTC&units=english&output=json";
 
   const data = await fetchJSON(url);
@@ -457,7 +459,7 @@ async function getWindRoseData(stationId) {
     for (let i = 0; i < count; i++) {
       const spd = speeds[i];
       const dir = directions[i];
-      if (spd === null || dir === null) continue;
+      if (spd === null || dir === null || spd === 0) continue;
 
       // Map direction (0-360) to one of 16 bins
       const binIdx = Math.round(dir / 22.5) % 16;

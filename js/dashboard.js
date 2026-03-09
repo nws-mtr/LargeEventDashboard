@@ -538,7 +538,7 @@ class WeatherDashboard {
           return;
         }
         if (data.totalObs === 0) {
-          container.innerHTML = "<div class=\"error-msg\">No wind observations in last 2 hours</div>";
+          container.innerHTML = "<div class=\"error-msg\">No wind observations in last 24 hours</div>";
           return;
         }
         renderWindRose("windrose-container", data);
@@ -581,8 +581,15 @@ class WeatherDashboard {
     setInterval(() => this.loadRadarLoop(), 5 * 60 * 1000);
     // Satellite refresh every 10 minutes
     setInterval(() => this.loadSatelliteLoop(), 10 * 60 * 1000);
-    // Data refresh every 30 minutes (weather, forecast, wind rose)
-    setInterval(() => this.loadAllData(), 30 * 60 * 1000);
+    // Current obs + wind rose refresh every 5 minutes
+    setInterval(() => {
+      this.loadCurrentWeather().then((stationId) => {
+        this.loadWindRose(stationId);
+      });
+      this.updateLastUpdateTime();
+    }, 5 * 60 * 1000);
+    // Forecast refresh every 60 minutes
+    setInterval(() => this.loadHourlyForecast(), 60 * 60 * 1000);
   }
 }
 

@@ -118,8 +118,10 @@ function renderLineGraph(containerId, data, labels, varConfig, hours, eventTimes
           const evtIdx = (evtMs - firstTime) / timeRange * (n - 1);
           const ex = ml + (evtIdx / (n - 1)) * pw;
           svg += `<line x1="${ex.toFixed(1)}" y1="${mt}" x2="${ex.toFixed(1)}" y2="${h - mb}" stroke="#f44336" stroke-width="2" stroke-dasharray="4,2"/>`;
-          // Rotated label
-          svg += `<text x="${(ex + 3).toFixed(1)}" y="${mt + 4}" fill="#f44336" font-size="11" font-weight="600" transform="rotate(-45,${(ex + 3).toFixed(1)},${mt + 4})">${evt.name}</text>`;
+          // Vertical label anchored at top of chart, reading downward
+          const labelY = (mt + 4).toFixed(1);
+          const labelX = (ex - 3).toFixed(1);
+          svg += `<text x="${labelX}" y="${labelY}" fill="#f44336" font-size="10" font-weight="600" transform="rotate(-90,${labelX},${labelY})" text-anchor="end">${evt.name}</text>`;
         }
       });
     }
