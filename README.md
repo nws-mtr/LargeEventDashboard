@@ -1,186 +1,103 @@
-# 🏈 Super Bowl LX — Large Event Weather Dashboard
+# Large Event Weather Dashboard
 
-Real-time weather dashboard for **Super Bowl LX** at **Levi's Stadium** (Santa Clara, CA), deployed as a Google Apps Script web app with interactive Leaflet radar map.
+A real-time weather situational awareness dashboard for large events. Configure any location and get live conditions, forecasts, radar, satellite imagery, and wind analysis — all in a single browser tab.
 
-## Dashboard Features
+## Features
 
-| Panel | Source | Refresh |
-|-------|--------|---------|
-| **Current Conditions** | Synoptic API → NWS fallback | 5 min |
-| **Weather Alerts** | NWS Alerts API | 1 min |
-| **Radar (MRMS)** | NCEP WMS — Leaflet map with time-dimension loop | 2 min |
-| **Satellite (GOES-18)** | Iowa State Mesonet WMS — Leaflet map with VIS/WV/IR channels | 5 min |
-| **Hourly Forecast** | NWS Hourly Forecast API | 15 min |
-| **Forecast Summary** | NWS Detailed Forecast | 15 min |
+| Panel | Description | Source | Refresh |
+|-------|-------------|--------|---------|
+| **Current Conditions** | Temperature, wind, humidity, dewpoint, precipitation | Synoptic Data API (NWS/FAA/RAWS stations) | 5 min |
+| **Wind Rose** | 24-hour wind direction/speed frequency chart (SVG polar plot) | Synoptic Data API time series | 5 min |
+| **Hourly Forecast** | 3 user-selectable variables with tooltips and event time annotations | NWS Gridpoint Forecast API | 60 min |
+| **Radar** | Animated MRMS reflectivity loop on interactive Leaflet map | NCEP WMS | 5 min |
+| **Satellite** | Animated GOES loop with auto VIS/IR switching by time of day | SSEC RealEarth | 10 min |
+
+## Quick Start
+
+```bash
+# Clone the repo
+git clone <repo-url> && cd LargeEventDashboard
+
+# Serve locally
+python3 -m http.server 8080
+
+# Open http://localhost:8080
+```
+
+No build step, no dependencies to install. Just a static file server.
+
+## Configuration
+
+Click the **Config** button in the dashboard footer to set:
+
+- **Event Name** — label for your event
+- **Latitude / Longitude** — dashboard auto-centers maps, finds nearest station, and determines timezone
+- **Forecast Variables** — choose 3 NWS forecast variables to chart (temperature, precipitation probability, sky cover, wind speed, etc.)
+- **Event Times** — add named time markers (e.g., "Gates Open", "Kickoff") that appear as vertical annotations on forecast charts
+
+Configuration is stored in `localStorage` and persists across page reloads.
+
+### API Key
+
+The dashboard uses the [Synoptic Data API](https://synopticdata.com/) for current observations and wind data. A hardcoded demo key is included for development. For production use, store your own key in `localStorage`:
+
+```js
+localStorage.setItem("SYNOPTIC_API_KEY", "your_key_here");
+```
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────┐
-│  Google Apps Script Web App                       │
-│                                                   │
-│  Code.gs          ─ Server-side functions         │
-│  index.html       ─ Dashboard HTML + Leaflet CDN  │
-│  Stylesheet.html  ─ CSS (dark theme)              │
-│  JavaScript.html  ─ Client JS, LoopPlayer,        │
-│                     Leaflet WMS radar + satellite  │
-│  appsscript.json  ─ Manifest                      │
-└──────────────────────────────────────────────────┘
-         │                        │
-         ▼                        ▼
-  UrlFetchApp.fetch()     google.script.run
-  (server→external)       (client→server RPC)
-         │
-         ▼                              ▲ (WMS tiles direct from browser)
-  ┌─────────────┐  ┌──────────┐  ┌─────────────────────────┐
-  │ Synoptic API │  │ NWS API  │  │ NCEP GeoServer (WMS)    │
-  │ (weather)    │  │(forecast,│  │ conus_bref_qcd layer    │
-  │              │  │ alerts)  │  │ + Iowa State Mesonet    │
-  │              │  │          │  │ GOES-West WMS (satellite) │
-  └─────────────┘  └──────────┘  └─────────────────────────┘
+index.html              ← entry point (no build step)
+css/styles.css          ← dark theme, CSS grid layout
+js/config.js            ← forecast variable registry, defaults, API keys
+js/cache.js             ← in-memory TTL cache
+js/api.js               ← data fetching (Synoptic, NWS, NCEP, SSEC)
+js/charts.js            ← SVG line graphs with tooltips and event annotations
+js/windrose.js          ← SVG polar wind rose chart
+js/maps.js              ← Leaflet radar/satellite map initialization
+js/dashboard.js         ← orchestration, auto-refresh, config modal
 ```
 
-### Radar Architecture
+### Data Flow
 
-The radar panel uses a **Leaflet.js** interactive map with **WMS time-dimension looping**:
-
-1. `Code.gs` → `getRadarTimes()` fetches the NCEP WMS `GetCapabilities` XML and parses the `<Dimension name="time">` element to extract available ISO 8601 timestamps
-2. `JavaScript.html` receives the timestamp array and feeds the last 10 to the `LoopPlayer`
-3. Each frame is a `L.tileLayer.wms()` pointed at `conus_bref_qcd` with a `time=` parameter — tiles are fetched directly by the browser from NCEP GeoServer (no CORS issues, no proxy needed)
-4. Dark basemap (CartoDB Dark Matter), venue marker with pulse animation, 10 NM range ring
-5. Play/pause, step forward/back, scrubber bar, frame counter
-
-### Satellite Architecture
-
-The satellite panel uses the same **Leaflet WMS** pattern as radar, powered by the **Iowa State Mesonet GOES-West WMS**:
-
-1. `Code.gs` → `getSatelliteTimes(channel)` fetches the Iowa State WMS `GetCapabilities` XML and parses the `<Extent name="time">` element for the requested GOES-18 channel
-2. Supports ISO 8601 time intervals (`start/end/PT10M`) and comma-separated time lists
-3. Three channel options switchable via VIS/WV/IR buttons:
-   - `conus_ch02` — Visible (0.64µm) — best for daytime cloud features
-   - `conus_ch09` — Water Vapor (6.9µm) — shows mid-level moisture, works day/night
-   - `conus_ch13` — Clean IR (10.3µm) — cloud-top temps, works day/night
-4. Each frame is a `L.tileLayer.wms()` with `time=` parameter, tiles loaded directly from Iowa State (no proxy)
-5. Dark basemap with labels overlay on top of satellite imagery, 50 NM range ring
-6. Same loop player controls as radar (play/pause, scrubber, frame counter)
-
-## Deployment
-
-### Option A: Manual (Apps Script Editor)
-
-1. Go to [script.google.com](https://script.google.com) and create a new project
-2. Create the following files and paste in their contents:
-   - `Code.gs` (replace default `Code.gs`)
-   - `index.html` (File → New → HTML file → name it `Index`)
-   - `Stylesheet.html` (File → New → HTML file → name it `Stylesheet`)
-   - `JavaScript.html` (File → New → HTML file → name it `JavaScript`)
-3. Replace the contents of `appsscript.json` (View → Show manifest file)
-4. Click **Deploy → New deployment**
-5. Select type **Web app**
-6. Set "Execute as" to **Me** and "Who has access" to **Anyone**
-7. Click **Deploy** and authorize when prompted
-8. Open the provided URL — your dashboard is live!
-
-### Option B: clasp CLI (Recommended)
-
-```bash
-# 1. Install clasp globally
-npm install -g @google/clasp
-
-# 2. Log in to your Google account
-clasp login
-
-# 3. Create a new Apps Script project
-clasp create --title "Super Bowl LX Weather Dashboard" --type webapp
-
-# 4. The above command creates .clasp.json with your scriptId.
-#    Push all files to Google Apps Script:
-clasp push
-
-# 5. Open in browser to verify
-clasp open
-
-# 6. Deploy as web app
-clasp deploy --description "v1.0 — Initial deployment"
-
-# 7. Open the deployed web app
-clasp open --webapp
+```
+Browser
+  ├── Synoptic API ─── current obs (nearest NWS/FAA/RAWS station)
+  │                └── 24h wind time series → wind rose
+  ├── NWS API ──────── gridpoint hourly forecast → charts
+  ├── NCEP WMS ─────── MRMS radar tiles → Leaflet map loop
+  └── SSEC RealEarth ─ GOES satellite tiles → Leaflet map loop
 ```
 
-### Post-Deployment: Install Cache Warming Trigger
+All API calls are made directly from the browser. No backend server required.
 
-In the Apps Script editor (or via `clasp run`):
+### Auto-Refresh Intervals
 
-1. Open the script editor
-2. Select `installTrigger` from the function dropdown
-3. Click **Run**
-4. Authorize when prompted
+| Data | Interval |
+|------|----------|
+| Current conditions + wind rose | 5 minutes |
+| Radar frames | 5 minutes |
+| Satellite frames | 10 minutes |
+| Hourly forecast | 60 minutes |
 
-This creates a time-driven trigger that pre-warms the cache every 5 minutes, so the dashboard loads faster.
+### Timezone Handling
 
-## Configuration
-
-All configuration is in `Code.gs` constants:
-
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `EVENT_CONFIG.latitude` | `37.403147` | Levi's Stadium latitude |
-| `EVENT_CONFIG.longitude` | `-121.969814` | Levi's Stadium longitude |
-| `SYNOPTIC_API_KEY` | `e0fb17ad...` | Synoptic Data API token |
-| `NEAREST_STATION` | `462PG` | Milpitas IDSM weather station |
-| `RADAR_STATION` | `KMUX` | Bay Area NEXRAD site |
-| `RADAR_WMS_URL` | `https://opengeo.ncep.noaa.gov/...` | NCEP WMS endpoint for MRMS reflectivity |
-
-### Moving API Key to PropertiesService (Recommended for Production)
-
-```javascript
-// In Apps Script editor: File → Project properties → Script properties
-// Add: SYNOPTIC_API_KEY = your_key_here
-
-// Then in Code.gs, replace the constant with:
-var SYNOPTIC_API_KEY = PropertiesService.getScriptProperties().getProperty('SYNOPTIC_API_KEY');
-```
+The dashboard automatically determines the display timezone from the configured longitude. All times (clock, observation timestamps, chart axes, event annotations) render in the venue's local time.
 
 ## Data Sources
 
-- **Current Weather**: [Synoptic Data API](https://synopticdata.com/) (station 462PG, Milpitas IDSM, ~3.1 km from venue)
-- **Forecast & Alerts**: [NOAA National Weather Service API](https://api.weather.gov/)
-- **Radar**: [NCEP GeoServer WMS](https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows) — MRMS quality-controlled base reflectivity, 1 km resolution, ~2 min updates, rendered on a Leaflet map via `L.tileLayer.wms()` with time-dimension looping
-- **Satellite**: [Iowa State Mesonet GOES-West WMS](https://mesonet.agron.iastate.edu/cgi-bin/wms/goes_west.cgi) — GOES-18 ABI channels (Visible ch02, Water Vapor ch09, Clean IR ch13), rendered on Leaflet map with time-dimension looping
+- **Current Weather**: [Synoptic Data API](https://synopticdata.com/) — nearest NWS/FAA (ASOS/AWOS) or RAWS station within 50 mi
+- **Forecast**: [NOAA National Weather Service API](https://api.weather.gov/) — gridpoint hourly forecast
+- **Radar**: [NCEP GeoServer WMS](https://opengeo.ncep.noaa.gov/) — MRMS base reflectivity, animated loop
+- **Satellite**: [SSEC RealEarth](https://realearth.ssec.wisc.edu/) — GOES-East/West, auto VIS (daytime) / IR (nighttime)
 
 ## Client-Side Libraries
 
-| Library | Version | CDN | Purpose |
-|---------|---------|-----|---------|
-| **Leaflet.js** | 1.9.4 | unpkg | Interactive radar + satellite maps with WMS tile layers |
-
-## File Structure
-
-```
-LargeEventDashboard/
-├── appsscript.json      # GAS manifest (timezone, runtime, webapp config)
-├── Code.gs              # Server-side: API calls, WMS time parsing, caching
-├── index.html           # Dashboard HTML template + Leaflet CDN
-├── Stylesheet.html      # CSS (dark theme, 4×3 grid, Leaflet overrides)
-├── JavaScript.html      # Client JS: LoopPlayer, Leaflet WMS radar, satellite
-├── .clasp.json          # clasp CLI config (script ID)
-├── .gitignore           # Git ignore rules
-├── .env.example         # Reference env vars
-└── README.md            # This file
-```
-
-## Key Differences from Node.js Version
-
-| Feature | Node.js/Express | Google Apps Script |
-|---------|----------------|-------------------|
-| HTTP client | `axios` | `UrlFetchApp.fetch()` |
-| Client↔Server | `fetch('/api/...')` | `google.script.run` |
-| Caching | File system (`data/cache/`) | `CacheService` (100KB/key, 6hr max) |
-| Scheduled tasks | `node-cron` | `ScriptApp.newTrigger()` |
-| Radar | GRIB2 via Python/pygrib | WMS tiles via Leaflet + NCEP GeoServer |
-| Satellite | Download to local disk | WMS tiles via Leaflet + Iowa State Mesonet |
-| Hosting | Express server (port 3000) | Google-managed web app |
+| Library | Version | Purpose |
+|---------|---------|---------|
+| [Leaflet.js](https://leafletjs.com/) | 1.9.4 | Interactive maps with WMS/tile layers |
 
 ## License
 
-Internal use — Super Bowl LX event operations.
+MIT
