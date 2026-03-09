@@ -107,6 +107,13 @@ class WeatherDashboard {
     this.satAnimSpeed     = 500;
     this.satDwellSpeed    = 1500; // dwell on last frame
 
+    // Wind rose toggle state
+    this.windroseMode = "observed";
+    this.lastObsStationId = null;
+
+    // Forecast hours toggle state
+    this.forecastHours = 24;
+
     this.init();
   }
 
@@ -115,6 +122,8 @@ class WeatherDashboard {
     this.setupClock();
     this.setupRadarMap();
     this.setupSatelliteMap();
+    this.setupWindRoseToggle();
+    this.setupForecastToggle();
     this.loadAllData();
     this.startAutoRefresh();
   }
@@ -212,6 +221,80 @@ class WeatherDashboard {
     };
     update();
     setInterval(update, 1000);
+  }
+
+  // ── Wind Rose Toggle ───────────────────────────────────────────────────────
+
+  setupWindRoseToggle() {
+    document.querySelectorAll("[data-windrose-mode]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (btn.dataset.windroseMode === this.windroseMode) return;
+        document.querySelectorAll("[data-windrose-mode]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        this.windroseMode = btn.dataset.windroseMode;
+        this.updateWindRoseTitle();
+        document.getElementById("windrose-container").innerHTML =
+          '<div class="loading-indicator"><div class="loading-spinner"></div> Loading wind data...</div>';
+        if (this.windroseMode === "forecast") {
+          this.loadForecastWindRose();
+        } else {
+          this.loadWindRose(this.lastObsStationId);
+        }
+      });
+    });
+  }
+
+  updateWindRoseTitle() {
+    const h2 = document.querySelector(".wind-rose h2");
+    if (!h2) return;
+    const subtitle = document.querySelector(".wind-rose .windrose-subtitle");
+    if (this.windroseMode === "forecast") {
+      h2.textContent = "Wind Forecast";
+      if (subtitle) subtitle.textContent = `Next ${this.forecastHours} Hours`;
+    } else {
+      h2.textContent = "Wind";
+      if (subtitle) subtitle.textContent = "Last 24 Hours";
+    }
+  }
+
+  loadForecastWindRose() {
+    getForecastWindRose(this.forecastHours)
+      .then((data) => {
+        if (this.windroseMode !== "forecast") return;
+        const container = document.getElementById("windrose-container");
+        if (data.error) {
+          container.innerHTML = `<div class="error-msg">${data.error}</div>`;
+          return;
+        }
+        if (data.totalObs === 0) {
+          container.innerHTML = '<div class="error-msg">No wind data in forecast</div>';
+          return;
+        }
+        renderWindRose("windrose-container", data);
+      })
+      .catch((err) => {
+        console.error("Forecast wind rose error:", err);
+        if (this.windroseMode === "forecast") {
+          document.getElementById("windrose-container").innerHTML = '<div class="error-msg">Failed to load forecast wind data</div>';
+        }
+      });
+  }
+
+  // ── Forecast Hours Toggle ─────────────────────────────────────────────────
+
+  setupForecastToggle() {
+    document.querySelectorAll("[data-forecast-hours]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const hrs = parseInt(btn.dataset.forecastHours, 10);
+        if (hrs === this.forecastHours) return;
+        document.querySelectorAll("[data-forecast-hours]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        this.forecastHours = hrs;
+        this.updateWindRoseTitle();
+        this.loadHourlyForecast();
+        if (this.windroseMode === "forecast") this.loadForecastWindRose();
+      });
+    });
   }
 
   // ── Maps ───────────────────────────────────────────────────────────────────
@@ -514,7 +597,8 @@ class WeatherDashboard {
           document.getElementById("hourly-container").innerHTML = `<div class="error-msg">${data.error}</div>`;
           return;
         }
-        const hours = data.hours || [];
+        const allHours = data.hours || [];
+        const hours = allHours.slice(0, this.forecastHours || 24);
         if (hours.length === 0) {
           document.getElementById("hourly-container").innerHTML = "<div class=\"error-msg\">No gridpoint data available</div>";
           return;
@@ -530,8 +614,11 @@ class WeatherDashboard {
   }
 
   loadWindRose(stationId) {
+    if (stationId) this.lastObsStationId = stationId;
+    if (this.windroseMode === "forecast") { this.loadForecastWindRose(); return; }
     getWindRoseData(stationId)
       .then((data) => {
+        if (this.windroseMode !== "observed") return;
         const container = document.getElementById("windrose-container");
         if (data.error) {
           container.innerHTML = `<div class="error-msg">${data.error}</div>`;

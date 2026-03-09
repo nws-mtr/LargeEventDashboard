@@ -14,7 +14,7 @@ function renderWindRose(containerId, data) {
   }
 
   // Layout constants
-  const size   = 300;
+  const size   = 350;
   const cx     = size / 2;
   const cy     = size / 2;
   const margin = 40;
@@ -68,8 +68,8 @@ function renderWindRose(containerId, data) {
   // Reference circles
   ringPcts.forEach((pct) => {
     const r = pctToR(pct);
-    svg += `<circle cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" fill="none" stroke="rgba(159,168,218,0.2)" stroke-width="0.5"/>`;
-    svg += `<text x="${cx + 2}" y="${cy - r - 1}" fill="#9fa8da" font-size="9" opacity="0.6">${Math.round(pct * 100)}%</text>`;
+    svg += `<circle cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" fill="none" stroke="rgba(159,168,218,0.2)" stroke-width="0.75"/>`;
+    svg += `<text x="${cx + 2}" y="${cy - r - 1}" fill="#9fa8da" font-size="12" opacity="1">${Math.round(pct * 100)}%</text>`;
   });
 
   // Wedge segments
@@ -103,26 +103,26 @@ function renderWindRose(containerId, data) {
 
   cardinalLabels.forEach(({ label, deg }) => {
     const [x, y] = polarToXY(deg, maxR + 14);
-    svg += `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="middle" fill="#e8eaf6" font-size="12" font-weight="600">${label}</text>`;
+    svg += `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="middle" fill="#e8eaf6" font-size="18" font-weight="600">${label}</text>`;
   });
 
   // Center dot
   svg += `<circle cx="${cx}" cy="${cy}" r="2" fill="#9fa8da"/>`;
 
   // Legend (below chart)
-  const legendY = size + 8;
-  const legendStartX = 20;
+  const legendY = size + 4;
+  const legendStartX = 25;
   const boxW = 14, boxH = 10, gap = 4;
   let lx = legendStartX;
   WIND_SPEED_BINS.forEach((bin) => {
     svg += `<rect x="${lx}" y="${legendY}" width="${boxW}" height="${boxH}" rx="2" fill="${bin.color}" fill-opacity="0.85"/>`;
-    svg += `<text x="${lx + boxW + 3}" y="${legendY + 9}" fill="#9fa8da" font-size="9">${bin.label}</text>`;
-    lx += boxW + 3 + bin.label.length * 5.5 + gap + 4;
+    svg += `<text x="${lx + boxW + 3}" y="${legendY + 9}" fill="#9fa8da" font-size="14">${bin.label}</text>`;
+    lx += boxW + 3 + bin.label.length * 6.5 + gap + 4;
   });
-  svg += `<text x="${lx}" y="${legendY + 9}" fill="#9fa8da" font-size="9">mph</text>`;
+  svg += `<text x="${lx}" y="${legendY + 9}" fill="#9fa8da" font-size="14">mph</text>`;
 
   // Station info
-  svg += `<text x="${cx}" y="${size + 32}" text-anchor="middle" fill="#9fa8da" font-size="9" opacity="0.7">${data.stationName} (${data.stationId}) \u2014 ${totalObs} obs</text>`;
+  svg += `<text x="${cx}" y="${size + 32}" text-anchor="middle" fill="#9fa8da" font-size="12" opacity="0.7">${data.stationName} (${data.stationId}) \u2014 ${totalObs} obs</text>`;
 
   svg += "</svg>";
   container.innerHTML = svg;

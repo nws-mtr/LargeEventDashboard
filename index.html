@@ -73,11 +73,18 @@
         </div>
       </section>
 
-      <!-- Wind Rose (last hour of surface observations) -->
+      <!-- Wind Rose -->
       <section class="panel wind-rose">
-        <h2>Wind Rose (Last 24 Hours)</h2>
+        <div class="windrose-title-row">
+          <h2>Wind</h2>
+          <span class="windrose-subtitle">Last 24 Hours</span>
+        </div>
         <div id="windrose-container" class="windrose-content">
           <div class="loading-indicator"><div class="loading-spinner"></div> Loading wind data...</div>
+        </div>
+        <div class="windrose-toggle">
+          <button class="toggle-btn active" data-windrose-mode="observed">Observed</button>
+          <button class="toggle-btn" data-windrose-mode="forecast">Forecast</button>
         </div>
       </section>
 
@@ -99,7 +106,13 @@
 
       <!-- Hourly Forecast (Gridpoint Time Series) -->
       <section class="panel hourly-forecast">
-        <h2>Hourly Forecast — Next 24h</h2>
+        <div class="panel-header-row">
+          <h2>Hourly Forecast</h2>
+          <div class="forecast-toggle">
+            <button class="toggle-btn active" data-forecast-hours="24">24 hr</button>
+            <button class="toggle-btn" data-forecast-hours="48">48 hr</button>
+          </div>
+        </div>
         <div id="hourly-container" class="hourly-content">
           <div class="loading-indicator"><div class="loading-spinner"></div> Loading gridpoint data...</div>
         </div>

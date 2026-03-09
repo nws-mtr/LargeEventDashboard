@@ -253,7 +253,7 @@ async function getGridpointForecast() {
     if (startHour <= now) startHour = new Date(startHour.getTime() + 3600000);
 
     const hours = [];
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < 48; i++) {
       hours.push(new Date(startHour.getTime() + i * 3600000).toISOString());
     }
 
@@ -482,5 +482,52 @@ async function getWindRoseData(stationId) {
     return result;
   } catch (err) {
     return { error: `Unable to fetch wind data: ${err.message}`, bins: [], totalObs: 0, timestamp: new Date().toISOString() };
+  }
+}
+
+// ── Forecast Wind Rose ────────────────────────────────────────────────────────
+
+async function getForecastWindRose(numHours) {
+  numHours = numHours || 24;
+  const cacheKey = "forecast_windrose_" + numHours;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const forecast = await getGridpointForecast();
+    if (forecast.error) return { error: forecast.error, bins: [], totalObs: 0, timestamp: new Date().toISOString() };
+
+    const hours = (forecast.hours || []).slice(0, numHours);
+    const DIR_LABELS = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+    const bins = DIR_LABELS.map((label) => ({
+      label,
+      speedCounts: WIND_SPEED_BINS.map(() => 0)
+    }));
+
+    let totalObs = 0;
+    for (const hr of hours) {
+      const spd = hr.windSpeed;
+      const dir = hr.windDirection;
+      if (spd == null || dir == null || spd === 0) continue;
+
+      const binIdx = Math.round(dir / 22.5) % 16;
+      const spdIdx = WIND_SPEED_BINS.findIndex((b) => spd >= b.min && spd < b.max);
+      if (spdIdx >= 0) {
+        bins[binIdx].speedCounts[spdIdx]++;
+        totalObs++;
+      }
+    }
+
+    const result = {
+      bins,
+      totalObs,
+      stationName: "NWS Forecast",
+      stationId:   "",
+      timestamp:   new Date().toISOString()
+    };
+    cachePut(cacheKey, result, CACHE_FORECAST);
+    return result;
+  } catch (err) {
+    return { error: `Unable to build forecast wind rose: ${err.message}`, bins: [], totalObs: 0, timestamp: new Date().toISOString() };
   }
 }
