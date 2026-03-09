@@ -156,12 +156,8 @@ class WeatherDashboard {
 
   updateEventInfo() {
     if (!this.config) return;
-    document.getElementById("event-name").textContent     = this.config.name ? this.config.name + " Weather" : "Event Weather";
-    document.getElementById("event-location").textContent = `${this.config.latitude.toFixed(4)}, ${this.config.longitude.toFixed(4)}`;
-    document.getElementById("event-date").textContent     = new Date(this.config.startDate).toLocaleDateString("en-US", {
-      weekday: "long", year: "numeric", month: "long", day: "numeric"
-    });
-    document.getElementById("timezone").textContent = this.getTimezoneDisplayName(this.displayTimezone || this.config.timezone);
+    document.getElementById("event-name").textContent = this.config.name ? this.config.name + " Weather" : "Event Weather";
+    document.getElementById("timezone").textContent   = this.getTimezoneDisplayName(this.displayTimezone || this.config.timezone);
   }
 
   chooseTimezone(longitude) {
@@ -203,10 +199,16 @@ class WeatherDashboard {
   // ── Clock ──────────────────────────────────────────────────────────────────
 
   setupClock() {
+    const tz = () => this.displayTimezone || "America/Los_Angeles";
     const update = () => {
-      document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-US", {
+      const now = new Date();
+      document.getElementById("clock").textContent = now.toLocaleTimeString("en-US", {
         hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-        timeZone: this.displayTimezone || "America/Los_Angeles"
+        timeZone: tz()
+      });
+      document.getElementById("current-date").textContent = now.toLocaleDateString("en-US", {
+        weekday: "long", month: "long", day: "numeric", year: "numeric",
+        timeZone: tz()
       });
     };
     update();
@@ -537,7 +539,7 @@ class WeatherDashboard {
           return;
         }
         if (data.totalObs === 0) {
-          container.innerHTML = "<div class=\"error-msg\">No wind observations in last hour</div>";
+          container.innerHTML = "<div class=\"error-msg\">No wind observations in last 2 hours</div>";
           return;
         }
         renderWindRose("windrose-container", data);

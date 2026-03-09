@@ -411,7 +411,7 @@ const WIND_SPEED_BINS = [
 async function fetchSynopticTimeSeries_(stationId) {
   const config = await getConfig();
   const end   = new Date();
-  const start = new Date(end.getTime() - 60 * 60 * 1000); // 1 hour ago
+  const start = new Date(end.getTime() - 2 * 60 * 60 * 1000); // 2 hours ago
 
   const fmt = (d) => d.toISOString().replace(/[-:T]/g, "").substring(0, 12);
 
