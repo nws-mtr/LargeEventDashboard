@@ -39,10 +39,10 @@ Configuration is stored in `localStorage` and persists across page reloads.
 
 ### API Key
 
-The dashboard uses the [Synoptic Data API](https://synopticdata.com/) for current observations and wind data. A hardcoded demo key is included for development. For production use, store your own key in `localStorage`:
+The dashboard uses the [Synoptic Data API](https://synopticdata.com/) for current observations and wind data. Create `js/keys.js` (gitignored) with your API key:
 
 ```js
-localStorage.setItem("SYNOPTIC_API_KEY", "your_key_here");
+const SYNOPTIC_API_KEY = "your_key_here";
 ```
 
 ## Architecture
