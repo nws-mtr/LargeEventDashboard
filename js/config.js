@@ -15,9 +15,6 @@ function getDefaultEventConfig() {
 // API keys — loaded from js/keys.js (not committed to repo)
 // SYNOPTIC_API_KEY is defined in js/keys.js
 
-const NEAREST_STATION = "KMRY";
-const RADAR_STATION   = "KMUX";
-
 const RADAR_WMS_URL      = "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows";
 const SATELLITE_TILE_URL  = "https://realearth.ssec.wisc.edu/api/image";
 const SATELLITE_TIMES_URL = "https://realearth.ssec.wisc.edu/api/times";
@@ -33,7 +30,6 @@ const CACHE_WEATHER   = 300;
 const CACHE_RADAR     = 120;
 const CACHE_SATELLITE = 300;
 const CACHE_FORECAST  = 3600;
-const CACHE_ALERTS    = 60;
 const CACHE_WINDROSE  = 300;
 
 // ── Forecast Variables Registry ─────────────────────────────────────────────
